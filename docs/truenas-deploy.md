@@ -7,7 +7,9 @@
 - `postgres` - база данных.
 - `api` - сервер приложения.
 
-Если серверную часть нужно разворачивать напрямую с GitHub без токенов и ручного клонирования, используйте `docker-compose.github-build.yml` и инструкцию `docs/github-deploy.md`.
+Если серверную часть нужно запустить через пользовательское приложение TrueNAS 25.04, используйте `docker-compose.truenas-custom.yml` и инструкцию `docs/truenas-custom-app.md`.
+
+Если нужно развернуть сервер напрямую с GitHub без токенов и ручного клонирования через обычный Docker Compose, используйте `docker-compose.github-build.yml` и инструкцию `docs/github-deploy.md`.
 
 Перед запуском создайте `.env` рядом с `docker-compose.yml`:
 

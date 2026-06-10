@@ -18,6 +18,7 @@
 - `android` - Android-приложение на Kotlin.
 - `docker-compose.yml` - запуск сервера со сборкой backend на месте.
 - `docker-compose.github-build.yml` - запуск сервера со сборкой backend напрямую из публичного GitHub-репозитория.
+- `docker-compose.truenas-custom.yml` - готовый YAML для TrueNAS 25.04 Custom App без отдельного `.env`.
 - `docker-compose.ghcr.yml` - запуск готового backend-образа из GitHub Container Registry.
 - `docs` - инструкции по API, TrueNAS и GitHub-развертыванию.
 
@@ -31,7 +32,7 @@
 docker compose up -d --build
 ```
 
-Для временного публичного теста без токенов используйте `docker-compose.github-build.yml`. Подробная инструкция: `docs/github-deploy.md`.
+Для TrueNAS 25.04 Custom App проще всего использовать `docker-compose.truenas-custom.yml`: его можно вставить целиком в поле YAML. Подробная инструкция: `docs/truenas-custom-app.md`.
 
 Проверка:
 

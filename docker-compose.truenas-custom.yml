@@ -1,0 +1,38 @@
+# YAML для TrueNAS 25.04 Custom App / Install via YAML.
+# Можно вставить целиком в поле Custom Config.
+#
+# Для быстрого теста файл запустится как есть.
+# Перед постоянным использованием замените POSTGRES_PASSWORD и JWT_SECRET
+# на свои длинные случайные значения.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shopping
+      POSTGRES_USER: shopping
+      POSTGRES_PASSWORD: shopping-list-postgres-password-change-me
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shopping -d shopping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: https://github.com/shurshick/shopping-list-truenas.git#main:backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://shopping:shopping-list-postgres-password-change-me@postgres:5432/shopping
+      JWT_SECRET: shopping-list-jwt-secret-change-me-before-real-use
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:
