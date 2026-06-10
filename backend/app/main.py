@@ -22,7 +22,7 @@ Base.metadata.create_all(bind=engine)
 with engine.begin() as connection:
     connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
 
-app = FastAPI(title="Shopping List Sync API", version="0.1.0")
+app = FastAPI(title="API синхронизации списка покупок", version="0.1.0")
 app.include_router(setup_router)
 
 
@@ -33,7 +33,7 @@ def require_list_access(db: Session, user: User, list_id: int) -> ShoppingList:
         .where(ShoppingList.id == list_id, ListMember.user_id == user.id)
     )
     if shopping_list is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Список не найден")
     return shopping_list
 
 
@@ -51,13 +51,13 @@ def server_config(db: Session = Depends(get_db)):
 def register(payload: AuthRequest, db: Session = Depends(get_db)):
     server_settings = get_server_settings(db)
     if not server_settings.setup_completed:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Server setup is not completed")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Первичная настройка сервера не завершена")
     if not server_settings.allow_registration:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registration is disabled")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Регистрация отключена")
 
     email = payload.email.lower()
     if db.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email is already registered")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Этот email уже зарегистрирован")
 
     user = User(email=email, password_hash=hash_password(payload.password))
     db.add(user)
@@ -70,7 +70,7 @@ def register(payload: AuthRequest, db: Session = Depends(get_db)):
 def login(payload: AuthRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Wrong email or password")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный email или пароль")
     return TokenResponse(access_token=create_access_token(user.id))
 
 
@@ -106,7 +106,7 @@ def share_list(
     shopping_list = require_list_access(db, current_user, list_id)
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
     if not db.scalar(select(ListMember).where(ListMember.list_id == shopping_list.id, ListMember.user_id == user.id)):
         db.add(ListMember(list_id=shopping_list.id, user_id=user.id))
         db.commit()
@@ -137,7 +137,7 @@ def update_item(
 ):
     item = db.scalar(select(ShoppingItem).where(ShoppingItem.id == item_id))
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
     require_list_access(db, current_user, item.list_id)
     update = payload.model_dump(exclude_unset=True)
     for key, value in update.items():
@@ -151,7 +151,7 @@ def update_item(
 def delete_item(item_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     item = db.scalar(select(ShoppingItem).where(ShoppingItem.id == item_id))
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
     require_list_access(db, current_user, item.list_id)
     db.delete(item)
     db.commit()

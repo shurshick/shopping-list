@@ -1,4 +1,5 @@
 from html import escape
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -30,14 +31,14 @@ def has_admin_user(db: Session) -> bool:
 def verify_admin(db: Session, email: str, password: str) -> User:
     user = db.scalar(select(User).where(User.email == email.lower(), User.is_admin.is_(True)))
     if user is None or not verify_password(password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wrong administrator email or password")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Неверный email или пароль администратора")
     return user
 
 
 def render_setup_page(server_settings: ServerSetting, needs_admin_creation: bool, message: str = "") -> str:
-    admin_title = "Create administrator" if needs_admin_creation else "Administrator login"
+    admin_title = "Создание администратора" if needs_admin_creation else "Вход администратора"
     password_extra = """
-              <label for="admin_password_confirm">Repeat administrator password</label>
+              <label for="admin_password_confirm">Повторите пароль администратора</label>
               <input id="admin_password_confirm" name="admin_password_confirm" type="password" required minlength="8" autocomplete="new-password" />
     """ if needs_admin_creation else ""
     password_autocomplete = "new-password" if needs_admin_creation else "current-password"
@@ -48,7 +49,7 @@ def render_setup_page(server_settings: ServerSetting, needs_admin_creation: bool
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Shopping List setup</title>
+        <title>Настройка списка покупок</title>
         <style>
           :root {{
             color-scheme: light;
@@ -102,33 +103,33 @@ def render_setup_page(server_settings: ServerSetting, needs_admin_creation: bool
       <body>
         <main>
           <section>
-            <h1>Shopping List setup</h1>
-            <p>Configure the server and administrator account.</p>
+            <h1>Настройка списка покупок</h1>
+            <p>Настройте сервер и учетную запись администратора.</p>
             {f'<div class="message">{escape(message)}</div>' if message else ''}
             <form method="post" action="/setup">
               <h2>{admin_title}</h2>
-              <label for="admin_email">Administrator email</label>
+              <label for="admin_email">Email администратора</label>
               <input id="admin_email" name="admin_email" type="email" required maxlength="255" autocomplete="username" />
 
-              <label for="admin_password">Administrator password</label>
+              <label for="admin_password">Пароль администратора</label>
               <input id="admin_password" name="admin_password" type="password" required minlength="8" autocomplete="{password_autocomplete}" />
               {password_extra}
 
-              <h2>Server settings</h2>
-              <label for="app_name">App name</label>
+              <h2>Настройки сервера</h2>
+              <label for="app_name">Название приложения</label>
               <input id="app_name" name="app_name" type="text" value="{escape(server_settings.app_name)}" required maxlength="80" />
 
-              <label for="external_url">External HTTPS address</label>
+              <label for="external_url">Внешний HTTPS-адрес</label>
               <input id="external_url" name="external_url" type="url" value="{escape(server_settings.external_url)}" placeholder="https://shopping.example.com" required maxlength="255" />
 
               <label class="row" for="allow_registration">
                 <input id="allow_registration" name="allow_registration" type="checkbox" value="true" {"checked" if server_settings.allow_registration else ""} />
-                Allow new account registration
+                Разрешить регистрацию новых пользователей
               </label>
 
-              <button type="submit">Save settings</button>
+              <button type="submit">Сохранить настройки</button>
             </form>
-            <p style="margin-top: 18px;">Public config is available at <code>/server-config</code>.</p>
+            <p style="margin-top: 18px;">Публичная конфигурация доступна по адресу <code>/server-config</code>.</p>
           </section>
         </main>
       </body>
@@ -160,20 +161,20 @@ def save_setup(
     email = admin_email.strip().lower()
 
     if len(admin_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Administrator password is too short")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Пароль администратора слишком короткий")
 
     if needs_admin_creation:
         if admin_password != admin_password_confirm:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Administrator passwords do not match")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Пароли администратора не совпадают")
         if db.scalar(select(User.id).where(User.email == email)):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email is already registered")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Этот email уже зарегистрирован")
         db.add(User(email=email, password_hash=hash_password(admin_password), is_admin=True))
     else:
         verify_admin(db, email, admin_password)
 
     normalized_url = external_url.strip().rstrip("/")
     if not normalized_url.startswith("https://"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="External address must start with https://")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Внешний адрес должен начинаться с https://")
 
     server_settings = get_server_settings(db)
     server_settings.app_name = app_name.strip()
@@ -182,4 +183,4 @@ def save_setup(
     server_settings.setup_completed = True
     db.commit()
 
-    return RedirectResponse(url="/setup?message=Settings%20saved", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=f"/setup?message={quote('Настройки сохранены')}", status_code=status.HTTP_303_SEE_OTHER)

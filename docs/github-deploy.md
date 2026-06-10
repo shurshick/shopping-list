@@ -1,10 +1,10 @@
 # Развертывание серверной части с GitHub
 
-Есть два удобных варианта.
+Есть два варианта запуска серверной части на TrueNAS.
 
-## Вариант 1: запуск готового образа из GitHub Container Registry
+## Вариант 1: готовый Docker-образ из GitHub
 
-Этот вариант не собирает backend на TrueNAS. Сервер скачивает готовый Docker-образ из GitHub.
+Этот вариант не собирает backend на TrueNAS. Сервер скачивает готовый образ из GitHub Container Registry.
 
 1. Создайте на GitHub Personal Access Token с правами `read:packages` и доступом на чтение содержимого приватного репозитория.
 2. На TrueNAS выполните вход в GitHub Container Registry:
@@ -32,20 +32,20 @@ API_PORT=8000
 APP_VERSION=latest
 ```
 
-5. Запустите:
+5. Запустите сервер:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-6. Откройте мастер:
+6. Откройте мастер настройки:
 
 ```text
 http://truenas-ip:8000/setup
 ```
 
-## Вариант 2: clone приватного репозитория и сборка на сервере
+## Вариант 2: клонирование приватного репозитория
 
 Этот вариант собирает backend прямо на TrueNAS из исходников.
 
@@ -55,7 +55,7 @@ cd shopping-list-truenas
 cp .env.example .env
 ```
 
-Заполните `.env`, затем:
+Заполните `.env`, затем запустите:
 
 ```bash
 docker compose up -d --build
@@ -65,14 +65,14 @@ docker compose up -d --build
 
 ## Обновление
 
-Для варианта с готовым образом:
+Если используется готовый образ:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Для варианта с clone:
+Если используется клонированный репозиторий:
 
 ```bash
 git pull

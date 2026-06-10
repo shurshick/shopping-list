@@ -1,4 +1,4 @@
-name: Publish API image
+name: Публикация Docker-образа API
 
 on:
   push:
@@ -20,17 +20,17 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Получить код
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
+      - name: Войти в GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata
+      - name: Подготовить метаданные Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -40,7 +40,7 @@ jobs:
             type=ref,event=tag
             type=sha,prefix=sha-
 
-      - name: Build and push
+      - name: Собрать и опубликовать образ
         uses: docker/build-push-action@v6
         with:
           context: ./backend

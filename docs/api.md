@@ -1,15 +1,15 @@
-# API
+# API сервера
 
-Base URL: `https://your-domain.example`
+Базовый адрес: `https://your-domain.example`
 
-## Auth
+## Авторизация
 
-- `POST /auth/register`
-- `POST /auth/login`
+- `POST /auth/register` - зарегистрировать пользователя.
+- `POST /auth/login` - войти в аккаунт.
 
 Обычная регистрация пользователей доступна только после завершения мастера `/setup`.
 
-Body:
+Тело запроса:
 
 ```json
 {
@@ -18,7 +18,7 @@ Body:
 }
 ```
 
-Response:
+Ответ:
 
 ```json
 {
@@ -27,37 +27,37 @@ Response:
 }
 ```
 
-## Sync
+## Синхронизация
 
 `GET /sync`
 
-Header:
+Заголовок:
 
 ```text
 Authorization: Bearer <token>
 ```
 
-## Server config
+## Публичная конфигурация сервера
 
 `GET /server-config`
 
-Response:
+Ответ:
 
 ```json
 {
-  "app_name": "Shopping List",
+  "app_name": "Список покупок",
   "external_url": "https://shopping.example.com",
   "allow_registration": true,
   "setup_completed": true
 }
 ```
 
-## Lists
+## Списки
 
 - `POST /lists` - создать список.
 - `POST /lists/{list_id}/share` - открыть доступ другому зарегистрированному пользователю.
 
-## Items
+## Товары
 
 - `POST /lists/{list_id}/items` - добавить покупку.
 - `PATCH /items/{item_id}` - изменить покупку или отметку.
