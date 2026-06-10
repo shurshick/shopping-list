@@ -1,53 +1,40 @@
 # Развертывание серверной части с GitHub
 
-Есть два варианта запуска серверной части на TrueNAS.
+На время тестирования репозиторий сделан публичным, поэтому серверную часть можно поднять без GitHub token.
 
-## Вариант 1: готовый Docker-образ из GitHub
+## Вариант 1: без клонирования, сборка напрямую из GitHub
 
-Этот вариант не собирает backend на TrueNAS. Сервер скачивает готовый образ из GitHub Container Registry.
-
-1. Создайте на GitHub Personal Access Token с правами `read:packages` и доступом на чтение содержимого приватного репозитория.
-2. На TrueNAS выполните вход в GitHub Container Registry:
-
-```bash
-echo YOUR_GITHUB_TOKEN | docker login ghcr.io -u shurshick --password-stdin
-```
-
-3. Создайте папку приложения и скачайте compose-файл:
+Этот вариант удобнее всего для проверки на TrueNAS: скачивается только compose-файл, а backend Docker сам соберет из публичного GitHub-репозитория.
 
 ```bash
 mkdir -p shopping-list
 cd shopping-list
-curl -L -H "Authorization: Bearer YOUR_GITHUB_TOKEN" \
+curl -L \
   -o docker-compose.yml \
-  https://raw.githubusercontent.com/shurshick/shopping-list-truenas/main/docker-compose.ghcr.yml
+  https://raw.githubusercontent.com/shurshick/shopping-list-truenas/main/docker-compose.github-build.yml
 ```
 
-4. Создайте `.env`:
+Создайте `.env` рядом с `docker-compose.yml`:
 
 ```env
 POSTGRES_PASSWORD=long-random-password
 JWT_SECRET=another-long-random-secret
 API_PORT=8000
-APP_VERSION=latest
 ```
 
-5. Запустите сервер:
+Запустите:
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose up -d --build
 ```
 
-6. Откройте мастер настройки:
+Откройте мастер настройки:
 
 ```text
 http://truenas-ip:8000/setup
 ```
 
-## Вариант 2: клонирование приватного репозитория
-
-Этот вариант собирает backend прямо на TrueNAS из исходников.
+## Вариант 2: клонирование публичного репозитория
 
 ```bash
 git clone https://github.com/shurshick/shopping-list-truenas.git
@@ -61,18 +48,26 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Для приватного репозитория GitHub попросит логин и token вместо пароля.
+## Вариант 3: готовый образ GHCR
+
+Файл `docker-compose.ghcr.yml` запускает готовый образ:
+
+```text
+ghcr.io/shurshick/shopping-list-truenas-api:latest
+```
+
+Сейчас репозиторий публичный, но видимость GHCR-пакета может требовать отдельного переключения в настройках GitHub Packages. Если `docker compose pull` получает `403`, используйте вариант 1 или 2.
 
 ## Обновление
 
-Если используется готовый образ:
+Для варианта без клонирования:
 
 ```bash
-docker compose pull
+docker compose build --pull
 docker compose up -d
 ```
 
-Если используется клонированный репозиторий:
+Для клонированного репозитория:
 
 ```bash
 git pull

@@ -7,7 +7,7 @@
 - `postgres` - база данных.
 - `api` - сервер приложения.
 
-Если серверную часть нужно разворачивать напрямую с GitHub без локальной сборки backend, используйте `docker-compose.ghcr.yml` и инструкцию `docs/github-deploy.md`.
+Если серверную часть нужно разворачивать напрямую с GitHub без токенов и ручного клонирования, используйте `docker-compose.github-build.yml` и инструкцию `docs/github-deploy.md`.
 
 Перед запуском создайте `.env` рядом с `docker-compose.yml`:
 

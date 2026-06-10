@@ -17,6 +17,7 @@
 - `backend` - серверная часть на FastAPI.
 - `android` - Android-приложение на Kotlin.
 - `docker-compose.yml` - запуск сервера со сборкой backend на месте.
+- `docker-compose.github-build.yml` - запуск сервера со сборкой backend напрямую из публичного GitHub-репозитория.
 - `docker-compose.ghcr.yml` - запуск готового backend-образа из GitHub Container Registry.
 - `docs` - инструкции по API, TrueNAS и GitHub-развертыванию.
 
@@ -30,7 +31,7 @@
 docker compose up -d --build
 ```
 
-Для запуска готового серверного образа напрямую из GitHub используйте `docker-compose.ghcr.yml`. Подробная инструкция: `docs/github-deploy.md`.
+Для временного публичного теста без токенов используйте `docker-compose.github-build.yml`. Подробная инструкция: `docs/github-deploy.md`.
 
 Проверка:
 
