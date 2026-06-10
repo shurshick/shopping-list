@@ -28,24 +28,53 @@ def verify_setup_token(token: str | None) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Wrong setup token")
 
 
-def blank_settings() -> ServerSetting:
-    return ServerSetting(
-        id=1,
-        app_name="Shopping List",
-        external_url="",
-        allow_registration=True,
-        setup_completed=False,
-    )
+def has_setup_access(server_settings: ServerSetting, token: str | None) -> bool:
+    if not server_settings.setup_completed:
+        return True
+    return bool(settings.setup_token and token == settings.setup_token)
+
+
+def render_locked_page(server_settings: ServerSetting) -> str:
+    return f"""
+    <!doctype html>
+    <html lang="ru">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Shopping List setup</title>
+        <style>
+          :root {{ font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+          body {{ margin: 0; background: #f6f7f9; color: #1f2933; }}
+          main {{ max-width: 680px; margin: 0 auto; padding: 32px 18px; }}
+          section {{ background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 24px; }}
+          h1 {{ margin: 0 0 8px; font-size: 28px; }}
+          p {{ margin: 0 0 14px; color: #52616f; line-height: 1.5; }}
+          code {{ background: #eef2f6; padding: 2px 5px; border-radius: 4px; }}
+        </style>
+      </head>
+      <body>
+        <main>
+          <section>
+            <h1>Setup is complete</h1>
+            <p>The server is configured and the first-run wizard is locked.</p>
+            <p>External address: <code>{escape(server_settings.external_url)}</code></p>
+            <p>To reconfigure from the web UI later, set <code>SETUP_TOKEN</code> for the API container and open <code>/setup?token=your-token</code>.</p>
+          </section>
+        </main>
+      </body>
+    </html>
+    """
 
 
 def render_setup_page(server_settings: ServerSetting, token: str = "", message: str = "") -> str:
-    warning = ""
-    if not settings.setup_token:
-        warning = """
-        <div class="warning">
-          SETUP_TOKEN is not set. Add it to .env before exposing this server to the internet.
-        </div>
+    token_field = ""
+    if server_settings.setup_completed and settings.setup_token:
+        token_field = f"""
+              <label for="token">Admin token</label>
+              <input id="token" name="token" type="password" value="{escape(token)}" autocomplete="current-password" />
         """
+    else:
+        token_field = f'<input name="token" type="hidden" value="{escape(token)}" />'
 
     return f"""
     <!doctype html>
@@ -146,11 +175,9 @@ def render_setup_page(server_settings: ServerSetting, token: str = "", message: 
           <section>
             <h1>Shopping List setup</h1>
             <p>Configure the public server address and key runtime options after Docker startup.</p>
-            {warning}
             {f'<div class="message">{escape(message)}</div>' if message else ''}
             <form method="post" action="/setup">
-              <label for="token">Setup token</label>
-              <input id="token" name="token" type="password" value="{escape(token)}" autocomplete="current-password" />
+              {token_field}
 
               <label for="app_name">App name</label>
               <input id="app_name" name="app_name" type="text" value="{escape(server_settings.app_name)}" required maxlength="80" />
@@ -175,11 +202,13 @@ def render_setup_page(server_settings: ServerSetting, token: str = "", message: 
 
 @router.get("/setup", response_class=HTMLResponse)
 def setup_page(token: str = "", message: str = "", db: Session = Depends(get_db)):
-    if settings.setup_token and not token:
-        return render_setup_page(blank_settings())
+    server_settings = get_server_settings(db)
+    if not has_setup_access(server_settings, token or None):
+        return render_locked_page(server_settings)
 
-    verify_setup_token(token or None)
-    return render_setup_page(get_server_settings(db), token=token, message=message)
+    if server_settings.setup_completed:
+        verify_setup_token(token or None)
+    return render_setup_page(server_settings, token=token, message=message)
 
 
 @router.post("/setup")
@@ -190,19 +219,23 @@ def save_setup(
     allow_registration: bool = Form(default=False),
     db: Session = Depends(get_db),
 ):
-    verify_setup_token(token or None)
+    server_settings = get_server_settings(db)
+    if not has_setup_access(server_settings, token or None):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Setup is already completed")
+    if server_settings.setup_completed:
+        verify_setup_token(token or None)
+
     normalized_url = external_url.strip().rstrip("/")
     if not normalized_url.startswith("https://"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="External address must start with https://")
 
-    server_settings = get_server_settings(db)
     server_settings.app_name = app_name.strip()
     server_settings.external_url = normalized_url
     server_settings.allow_registration = allow_registration
     server_settings.setup_completed = True
     db.commit()
 
-    return RedirectResponse(
-        url=f"/setup?token={quote(token)}&message=Settings%20saved",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    redirect_url = "/setup?message=Settings%20saved"
+    if token:
+        redirect_url = f"/setup?token={quote(token)}&message=Settings%20saved"
+    return RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)

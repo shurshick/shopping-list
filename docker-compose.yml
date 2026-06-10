@@ -23,7 +23,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://shopping:${POSTGRES_PASSWORD}@postgres:5432/shopping
       JWT_SECRET: ${JWT_SECRET}
-      SETUP_TOKEN: ${SETUP_TOKEN}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
     ports:
       - "${API_PORT:-8000}:8000"
 
