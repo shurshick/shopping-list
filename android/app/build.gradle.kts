@@ -12,8 +12,8 @@ android {
         applicationId = "com.shoppinglist.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0-pre.1"
+        versionCode = 3
+        versionName = "0.2.0"
     }
 
     buildFeatures {

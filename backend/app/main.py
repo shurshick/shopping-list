@@ -31,7 +31,7 @@ with engine.begin() as connection:
     connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
     connection.execute(text("ALTER TABLE list_invites ADD COLUMN IF NOT EXISTS used_at TIMESTAMP"))
 
-app = FastAPI(title="API синхронизации списка покупок", version="0.2.0-pre.1")
+app = FastAPI(title="API синхронизации списка покупок", version="0.2.0")
 app.include_router(setup_router)
 
 
