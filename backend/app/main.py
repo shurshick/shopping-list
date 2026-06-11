@@ -31,7 +31,7 @@ with engine.begin() as connection:
     connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
     connection.execute(text("ALTER TABLE list_invites ADD COLUMN IF NOT EXISTS used_at TIMESTAMP"))
 
-app = FastAPI(title="API синхронизации списка покупок", version="0.2.4")
+app = FastAPI(title="API синхронизации списка покупок", version="1.0.0")
 app.include_router(setup_router)
 
 
@@ -166,6 +166,18 @@ def delete_list(list_id: int, current_user: User = Depends(get_current_user), db
 def clear_list(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     shopping_list = require_list_access(db, current_user, list_id)
     items = db.scalars(select(ShoppingItem).where(ShoppingItem.list_id == shopping_list.id)).all()
+    for item in items:
+        db.delete(item)
+    db.commit()
+    return {"status": "cleared"}
+
+
+@app.delete("/lists/{list_id}/items/checked")
+def clear_checked_items(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    shopping_list = require_list_access(db, current_user, list_id)
+    items = db.scalars(
+        select(ShoppingItem).where(ShoppingItem.list_id == shopping_list.id, ShoppingItem.is_checked.is_(True))
+    ).all()
     for item in items:
         db.delete(item)
     db.commit()

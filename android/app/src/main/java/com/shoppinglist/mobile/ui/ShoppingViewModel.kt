@@ -195,6 +195,23 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun clearPurchasedItems() = viewModelScope.launch {
+        val token = _state.value.token ?: return@launch
+        val listId = _state.value.selectedListId ?: return@launch
+        runRequest {
+            api().clearCheckedItems("Bearer $token", listId)
+            sync()
+        }
+    }
+
+    fun updateItem(itemId: Int, name: String, quantity: String) = viewModelScope.launch {
+        val token = _state.value.token ?: return@launch
+        runRequest {
+            api().updateItem("Bearer $token", itemId, ItemUpdate(name = name, quantity = quantity))
+            sync()
+        }
+    }
+
     fun deleteItem(itemId: Int) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         runRequest {
@@ -240,6 +257,28 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun selectList(listId: Int) = update { copy(selectedListId = listId, selectedMembers = emptyList(), inviteUrl = "") }
+
+    fun saveServerUrl(serverUrl: String) {
+        val trimmedUrl = serverUrl.trim()
+        preferences.edit().putString("serverUrl", trimmedUrl).apply()
+        update { copy(serverUrl = trimmedUrl, message = "Адрес сервера сохранен") }
+    }
+
+    fun logout() {
+        preferences.edit().remove("token").apply()
+        update {
+            copy(
+                token = null,
+                password = "",
+                lists = emptyList(),
+                selectedMembers = emptyList(),
+                inviteUrl = "",
+                pendingInviteToken = null,
+                selectedListId = null,
+                message = null
+            )
+        }
+    }
 
     private suspend fun runRequest(block: suspend () -> Unit) {
         _state.value = _state.value.copy(isLoading = true, message = null)

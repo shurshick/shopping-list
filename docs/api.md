@@ -1,5 +1,7 @@
 # API сервера
 
+Актуально для версии `v1.0.0`.
+
 Базовый адрес: `https://your-domain.example`
 
 ## Авторизация
@@ -59,6 +61,7 @@ Authorization: Bearer <token>
 - `DELETE /lists/{list_id}` - удалить список. Для владельца удаляет список полностью, для участника убирает только его доступ.
 - `POST /lists/{list_id}/copy` - создать копию списка для текущего пользователя.
 - `DELETE /lists/{list_id}/items` - очистить список от всех позиций.
+- `DELETE /lists/{list_id}/items/checked` - удалить только позиции, отмеченные как купленные.
 - `GET /lists/{list_id}/members` - посмотреть участников списка.
 - `POST /lists/{list_id}/share` - открыть доступ другому зарегистрированному пользователю.
 - `POST /lists/{list_id}/invite` - создать одноразовую ссылку-приглашение.
@@ -68,5 +71,5 @@ Authorization: Bearer <token>
 ## Товары
 
 - `POST /lists/{list_id}/items` - добавить покупку.
-- `PATCH /items/{item_id}` - изменить покупку или отметку.
+- `PATCH /items/{item_id}` - изменить название, количество или отметку покупки.
 - `DELETE /items/{item_id}` - удалить покупку.

@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,16 +19,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Refresh
@@ -70,6 +75,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.shoppinglist.mobile.BuildConfig
 import com.shoppinglist.mobile.ui.ShoppingUiState
 import com.shoppinglist.mobile.ui.ShoppingViewModel
 
@@ -106,10 +112,14 @@ class MainActivity : ComponentActivity() {
                             viewModel::copySelectedList,
                             viewModel::deleteSelectedList,
                             viewModel::clearSelectedList,
+                            viewModel::clearPurchasedItems,
+                            viewModel::updateItem,
                             viewModel::createInviteLink,
                             viewModel::clearInviteUrl,
                             viewModel::addCatalogProduct,
-                            viewModel::removeCatalogProduct
+                            viewModel::removeCatalogProduct,
+                            viewModel::saveServerUrl,
+                            viewModel::logout
                         )
                     }
                 }
@@ -198,10 +208,14 @@ private fun ShoppingScreen(
     onCopyList: () -> Unit,
     onDeleteList: () -> Unit,
     onClearList: () -> Unit,
+    onClearPurchased: () -> Unit,
+    onUpdateItem: (Int, String, String) -> Unit,
     onCreateInviteLink: () -> Unit,
     onClearInviteUrl: () -> Unit,
     onAddCatalogProduct: (String) -> Unit,
-    onRemoveCatalogProduct: (String) -> Unit
+    onRemoveCatalogProduct: (String) -> Unit,
+    onSaveServerUrl: (String) -> Unit,
+    onLogout: () -> Unit
 ) {
     var itemName by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
@@ -214,8 +228,12 @@ private fun ShoppingScreen(
     var renameDialogOpen by remember { mutableStateOf(false) }
     var deleteDialogOpen by remember { mutableStateOf(false) }
     var clearDialogOpen by remember { mutableStateOf(false) }
+    var clearPurchasedDialogOpen by remember { mutableStateOf(false) }
     var inviteDialogOpen by remember { mutableStateOf(false) }
     var catalogDialogOpen by remember { mutableStateOf(false) }
+    var settingsDialogOpen by remember { mutableStateOf(false) }
+    var aboutDialogOpen by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<com.shoppinglist.mobile.data.ShoppingItemDto?>(null) }
     val selectedList = state.lists.firstOrNull { it.id == state.selectedListId }
     val visibleItems = remember(selectedList?.items) {
         selectedList?.items.orEmpty().sortedWith { first, second ->
@@ -272,6 +290,10 @@ private fun ShoppingScreen(
                             listMenuOpen = false
                             clearDialogOpen = true
                         },
+                        onClearPurchased = {
+                            listMenuOpen = false
+                            clearPurchasedDialogOpen = true
+                        },
                         onDelete = {
                             listMenuOpen = false
                             deleteDialogOpen = true
@@ -305,6 +327,22 @@ private fun ShoppingScreen(
                             onClick = {
                                 menuOpen = false
                                 catalogDialogOpen = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Настройки") },
+                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                settingsDialogOpen = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("О приложении") },
+                            leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
+                            onClick = {
+                                menuOpen = false
+                                aboutDialogOpen = true
                             }
                         )
                     }
@@ -356,10 +394,16 @@ private fun ShoppingScreen(
                                 Text(
                                     text = item.name,
                                     style = MaterialTheme.typography.titleSmall,
-                                    textDecoration = if (item.is_checked) TextDecoration.LineThrough else TextDecoration.None
+                                    textDecoration = if (item.is_checked) TextDecoration.LineThrough else TextDecoration.None,
+                                    modifier = Modifier.clickable { editingItem = item }
                                 )
                                 if (item.quantity.isNotBlank()) {
-                                    Text(item.quantity, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        item.quantity,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.clickable { editingItem = item }
+                                    )
                                 }
                             }
                             IconButton(onClick = { onDeleteItem(item.id) }, modifier = Modifier.size(40.dp)) {
@@ -459,6 +503,29 @@ private fun ShoppingScreen(
         )
     }
 
+    if (clearPurchasedDialogOpen && selectedList != null) {
+        ConfirmClearPurchasedDialog(
+            listName = selectedList.name,
+            onDismiss = { clearPurchasedDialogOpen = false },
+            onClear = {
+                onClearPurchased()
+                clearPurchasedDialogOpen = false
+            }
+        )
+    }
+
+    editingItem?.let { item ->
+        EditItemDialog(
+            itemName = item.name,
+            quantity = item.quantity,
+            onDismiss = { editingItem = null },
+            onSave = { name, nextQuantity ->
+                onUpdateItem(item.id, name, nextQuantity)
+                editingItem = null
+            }
+        )
+    }
+
     if (inviteDialogOpen) {
         InviteLinkDialog(
             inviteUrl = state.inviteUrl,
@@ -467,6 +534,25 @@ private fun ShoppingScreen(
                 onClearInviteUrl()
             }
         )
+    }
+
+    if (settingsDialogOpen) {
+        SettingsDialog(
+            serverUrl = state.serverUrl,
+            onDismiss = { settingsDialogOpen = false },
+            onSaveServerUrl = {
+                onSaveServerUrl(it)
+                settingsDialogOpen = false
+            },
+            onLogout = {
+                onLogout()
+                settingsDialogOpen = false
+            }
+        )
+    }
+
+    if (aboutDialogOpen) {
+        AboutDialog(onDismiss = { aboutDialogOpen = false })
     }
 
     if (catalogDialogOpen) {
@@ -548,6 +634,7 @@ private fun ListDropdownMenu(
     onRename: () -> Unit,
     onCopy: () -> Unit,
     onClear: () -> Unit,
+    onClearPurchased: () -> Unit,
     onDelete: () -> Unit,
     onShareByEmail: () -> Unit,
     onInvite: () -> Unit
@@ -576,6 +663,12 @@ private fun ListDropdownMenu(
             leadingIcon = { Icon(Icons.Default.CleaningServices, contentDescription = null) },
             enabled = enabled,
             onClick = onClear
+        )
+        DropdownMenuItem(
+            text = { Text("Очистить купленные") },
+            leadingIcon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+            enabled = enabled,
+            onClick = onClearPurchased
         )
         DropdownMenuItem(
             text = { Text("Удалить") },
@@ -771,6 +864,62 @@ private fun ConfirmClearDialog(listName: String, onDismiss: () -> Unit, onClear:
 }
 
 @Composable
+private fun ConfirmClearPurchasedDialog(listName: String, onDismiss: () -> Unit, onClear: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Очистить купленные?") },
+        text = { Text("Все отмеченные как купленные позиции из списка «$listName» будут удалены.") },
+        confirmButton = {
+            Button(onClick = onClear) { Text("Очистить") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
+}
+
+@Composable
+private fun EditItemDialog(
+    itemName: String,
+    quantity: String,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var name by remember(itemName) { mutableStateOf(itemName) }
+    var nextQuantity by remember(quantity) { mutableStateOf(quantity) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Редактировать товар") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Товар") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    nextQuantity,
+                    { nextQuantity = it },
+                    label = { Text("Количество") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = { if (name.isNotBlank()) onSave(name.trim(), nextQuantity.trim()) }) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Отмена") }
+        }
+    )
+}
+
+@Composable
 private fun InviteLinkDialog(inviteUrl: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     AlertDialog(
@@ -813,6 +962,81 @@ private fun InviteLinkDialog(inviteUrl: String, onDismiss: () -> Unit) {
                 }
             ) {
                 Text("Скопировать")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        }
+    )
+}
+
+@Composable
+private fun SettingsDialog(
+    serverUrl: String,
+    onDismiss: () -> Unit,
+    onSaveServerUrl: (String) -> Unit,
+    onLogout: () -> Unit
+) {
+    var nextServerUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Настройки") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    nextServerUrl,
+                    { nextServerUrl = it },
+                    label = { Text("Адрес сервера") },
+                    placeholder = { Text("https://shopping.example.com") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                HorizontalDivider()
+                OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Logout, contentDescription = null)
+                    Text("Выйти из аккаунта", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSaveServerUrl(nextServerUrl) }) {
+                Text("Сохранить")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Закрыть") }
+        }
+    )
+}
+
+@Composable
+private fun AboutDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val projectUrl = "https://github.com/shurshick/shopping-list-truenas"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("О приложении") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Список покупок", style = MaterialTheme.typography.titleMedium)
+                Text("Версия ${BuildConfig.VERSION_NAME}")
+                Text("© 2026 shurshick")
+                OutlinedTextField(
+                    projectUrl,
+                    {},
+                    label = { Text("Проект") },
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(projectUrl)))
+                }
+            ) {
+                Text("Открыть проект")
             }
         },
         dismissButton = {
