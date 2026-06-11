@@ -63,7 +63,7 @@ image: ghcr.io/shurshick/shopping-list-api:latest
 Если нужно жёстко закрепиться на конкретной версии, замените `latest` на номер релиза:
 
 ```yaml
-image: ghcr.io/shurshick/shopping-list-api:v1.3.0
+image: ghcr.io/shurshick/shopping-list-api:latest
 ```
 
 Если версия в `/docs` не изменилась, удалите старый контейнер приложения в TrueNAS и создайте его заново с тем же volume PostgreSQL. Данные списков находятся в volume `postgres_data`, поэтому сам контейнер API можно пересоздавать.

@@ -407,17 +407,6 @@ private fun ShoppingScreen(
                     )
                 }
 
-                if (state.isOffline || state.pendingOperationCount > 0 || state.lastSuccessfulSync != null) {
-                    item {
-                        SyncStatusCard(
-                            isOffline = state.isOffline,
-                            pendingOperationCount = state.pendingOperationCount,
-                            lastSuccessfulSync = state.lastSuccessfulSync,
-                            onSync = onSync
-                        )
-                    }
-                }
-
                 if (state.canUndoDelete) {
                     item {
                         DeletedItemUndoCard(onUndo = onUndoDeleteItem)
@@ -444,6 +433,17 @@ private fun ShoppingScreen(
                             onToggleItem = onToggleItem,
                             onDeleteItem = onDeleteItem,
                             onEditItem = { editingItem = it }
+                        )
+                    }
+                }
+
+                if (state.isOffline || state.pendingOperationCount > 0 || state.lastSuccessfulSync != null) {
+                    item {
+                        SyncStatusCard(
+                            isOffline = state.isOffline,
+                            pendingOperationCount = state.pendingOperationCount,
+                            lastSuccessfulSync = state.lastSuccessfulSync,
+                            onSync = onSync
                         )
                     }
                 }

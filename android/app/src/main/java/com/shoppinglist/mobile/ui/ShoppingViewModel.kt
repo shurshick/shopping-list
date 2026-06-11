@@ -162,6 +162,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun createItem(name: String, quantity: String) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         val listId = _state.value.selectedListId ?: return@launch
+        addCatalogProduct(name)
         val tempItem = ShoppingItemDto(nextTempId(), name, quantity, false, localTimestamp())
         applyLocalItem(listId, tempItem)
         runOnlineThenSync(
