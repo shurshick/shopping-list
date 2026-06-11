@@ -22,8 +22,7 @@ services:
       retries: 5
 
   api:
-    build:
-      context: https://github.com/shurshick/shopping-list.git#main:backend
+    image: ghcr.io/shurshick/shopping-list-api:v1.2.1
     restart: unless-stopped
     depends_on:
       postgres:

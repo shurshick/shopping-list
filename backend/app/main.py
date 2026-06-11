@@ -27,7 +27,7 @@ from .security import create_access_token, get_current_user, hash_password, veri
 from .setup import get_server_settings, router as setup_router
 
 
-app = FastAPI(title="API синхронизации списка покупок", version="1.2.0")
+app = FastAPI(title="API синхронизации списка покупок", version="1.2.1")
 app.include_router(setup_router)
 
 
