@@ -1,4 +1,4 @@
-# Развертывание на TrueNAS
+# Развертывание на сервере или TrueNAS
 
 ## Контейнеры
 
@@ -25,10 +25,10 @@ API_PORT=8000
 docker compose up -d --build
 ```
 
-Проверка:
+Проверка на любом сервере:
 
 ```bash
-curl http://truenas-ip:8000/health
+curl http://server-ip:8000/health
 ```
 
 ## Мастер настройки
@@ -36,7 +36,7 @@ curl http://truenas-ip:8000/health
 После запуска откройте:
 
 ```text
-http://truenas-ip:8000/setup
+http://server-ip:8000/setup
 ```
 
 При первом запуске мастер попросит создать администратора и задать пароль. В нем можно задать:

@@ -1012,7 +1012,7 @@ private fun SettingsDialog(
 @Composable
 private fun AboutDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val projectUrl = "https://github.com/shurshick/shopping-list-truenas"
+    val projectUrl = "https://github.com/shurshick/shopping-list"
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("О приложении") },

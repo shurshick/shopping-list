@@ -1,6 +1,6 @@
 # API сервера
 
-Актуально для версии `v1.0.0`.
+Актуально для версии `v1.0.1`.
 
 Базовый адрес: `https://your-domain.example`
 
@@ -67,6 +67,12 @@ Authorization: Bearer <token>
 - `POST /lists/{list_id}/invite` - создать одноразовую ссылку-приглашение.
 - `POST /invites/{token}/accept` - принять одноразовое приглашение.
 - `GET /join/{token}` - страница приглашения, которая открывает Android-приложение.
+
+## Android-клиент
+
+- Минимальная версия Android: Android 8.0 Oreo.
+- Минимальный API: 26.
+- Целевая версия сборки: Android 15, API 35.
 
 ## Товары
 

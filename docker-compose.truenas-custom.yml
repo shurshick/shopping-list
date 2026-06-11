@@ -23,7 +23,7 @@ services:
 
   api:
     build:
-      context: https://github.com/shurshick/shopping-list-truenas.git#main:backend
+      context: https://github.com/shurshick/shopping-list.git#main:backend
     restart: unless-stopped
     depends_on:
       postgres:

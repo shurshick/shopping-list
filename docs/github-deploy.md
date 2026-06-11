@@ -1,17 +1,17 @@
-# Развертывание серверной части с GitHub
+# Развертывание серверной части с GitHub и Docker
 
 Серверную часть можно поднять напрямую из публичного GitHub-репозитория без GitHub token.
 
 ## Вариант 1: без клонирования, сборка напрямую из GitHub
 
-Этот вариант удобен для TrueNAS и обычного Docker-сервера: скачивается только compose-файл, а backend Docker сам соберет приложение из публичного GitHub-репозитория.
+Этот вариант удобен для обычного Docker-сервера, VPS, домашнего Linux-сервера или NAS: скачивается только compose-файл, а backend Docker сам соберет приложение из публичного GitHub-репозитория.
 
 ```bash
 mkdir -p shopping-list
 cd shopping-list
 curl -L \
   -o docker-compose.yml \
-  https://raw.githubusercontent.com/shurshick/shopping-list-truenas/main/docker-compose.github-build.yml
+  https://raw.githubusercontent.com/shurshick/shopping-list/main/docker-compose.github-build.yml
 ```
 
 Создайте `.env` рядом с `docker-compose.yml`:
@@ -31,14 +31,14 @@ docker compose up -d --build
 Откройте мастер настройки:
 
 ```text
-http://truenas-ip:8000/setup
+http://server-ip:8000/setup
 ```
 
 ## Вариант 2: клонирование публичного репозитория
 
 ```bash
-git clone https://github.com/shurshick/shopping-list-truenas.git
-cd shopping-list-truenas
+git clone https://github.com/shurshick/shopping-list.git
+cd shopping-list
 cp .env.example .env
 ```
 
@@ -53,7 +53,7 @@ docker compose up -d --build
 Файл `docker-compose.ghcr.yml` запускает готовый образ:
 
 ```text
-ghcr.io/shurshick/shopping-list-truenas-api:latest
+ghcr.io/shurshick/shopping-list-api:latest
 ```
 
 Если `docker compose pull` получает `403`, проверьте видимость пакета в GitHub Packages или используйте вариант 1 или 2.
