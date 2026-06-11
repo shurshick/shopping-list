@@ -31,10 +31,210 @@ from .security import create_access_token, get_current_user, hash_password, veri
 from .setup import get_server_settings, router as setup_router
 
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 
 app = FastAPI(title="API синхронизации списка покупок", version=APP_VERSION)
 app.include_router(setup_router)
+
+
+def render_admin_page() -> str:
+    return f"""
+    <!doctype html>
+    <html lang="ru">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Администрирование списка покупок</title>
+        <style>
+          :root {{
+            color-scheme: light;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }}
+          body {{ margin: 0; background: #f6f7f9; color: #1f2933; }}
+          main {{ max-width: 960px; margin: 0 auto; padding: 32px 18px; }}
+          section {{
+            background: #ffffff;
+            border: 1px solid #dde3ea;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 18px;
+          }}
+          h1 {{ margin: 0 0 8px; font-size: 30px; }}
+          h2 {{ margin: 0 0 14px; font-size: 20px; }}
+          p {{ margin: 0 0 18px; color: #52616f; line-height: 1.5; }}
+          label {{ display: block; margin: 14px 0 6px; font-weight: 650; }}
+          input {{
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 44px;
+            border: 1px solid #b8c4d0;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font: inherit;
+          }}
+          button {{
+            min-height: 44px;
+            border: 0;
+            border-radius: 6px;
+            background: #2364aa;
+            color: white;
+            padding: 0 18px;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+          }}
+          button.secondary {{ background: #e8eef5; color: #1f2933; }}
+          .actions {{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }}
+          .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }}
+          .card {{ border: 1px solid #e1e7ef; border-radius: 8px; padding: 16px; background: #fbfcfe; }}
+          .label {{ color: #65758b; font-size: 13px; margin-bottom: 6px; }}
+          .value {{ font-size: 24px; font-weight: 750; overflow-wrap: anywhere; }}
+          .small .value {{ font-size: 16px; font-weight: 650; }}
+          .message {{
+            display: none;
+            margin-bottom: 16px;
+            padding: 12px;
+            border-radius: 6px;
+            background: #eef2f6;
+            color: #1f2933;
+          }}
+          .message.error {{ background: #fdecec; color: #8a1f17; }}
+          .message.ok {{ background: #e7f5ec; color: #14532d; }}
+          .hidden {{ display: none; }}
+          code {{ background: #eef2f6; padding: 2px 5px; border-radius: 4px; }}
+        </style>
+      </head>
+      <body>
+        <main>
+          <section>
+            <h1>Администрирование списка покупок</h1>
+            <p>Войдите под администратором, чтобы посмотреть состояние сервера, базы данных и основные счётчики.</p>
+            <div id="message" class="message"></div>
+            <form id="login-form">
+              <label for="email">Email администратора</label>
+              <input id="email" type="email" autocomplete="username" required />
+              <label for="password">Пароль администратора</label>
+              <input id="password" type="password" autocomplete="current-password" required />
+              <div class="actions">
+                <button type="submit">Войти</button>
+                <button type="button" class="secondary" id="clear-token">Выйти</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="status-section" class="hidden">
+            <h2>Состояние сервера</h2>
+            <div class="grid" id="status-grid"></div>
+            <div class="actions">
+              <button type="button" id="refresh">Обновить</button>
+              <a href="/docs"><button type="button" class="secondary">Открыть Swagger</button></a>
+              <a href="/setup"><button type="button" class="secondary">Настройки сервера</button></a>
+            </div>
+          </section>
+        </main>
+
+        <script>
+          const tokenKey = "shoppingListAdminToken";
+          const message = document.querySelector("#message");
+          const form = document.querySelector("#login-form");
+          const statusSection = document.querySelector("#status-section");
+          const statusGrid = document.querySelector("#status-grid");
+          const refreshButton = document.querySelector("#refresh");
+          const clearTokenButton = document.querySelector("#clear-token");
+
+          function showMessage(text, kind) {{
+            message.textContent = text;
+            message.className = "message " + (kind || "");
+            message.style.display = text ? "block" : "none";
+          }}
+
+          function formatDate(value) {{
+            if (!value) return "нет данных";
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return value;
+            return date.toLocaleString("ru-RU");
+          }}
+
+          function card(label, value, small = false) {{
+            return `<div class="card${{small ? " small" : ""}}"><div class="label">${{label}}</div><div class="value">${{value}}</div></div>`;
+          }}
+
+          function renderStatus(data) {{
+            statusGrid.innerHTML = [
+              card("Версия API", data.version, true),
+              card("База данных", data.database === "ok" ? "доступна" : data.database, true),
+              card("Миграция", data.migration || "нет данных", true),
+              card("Время сервера", formatDate(data.server_time), true),
+              card("Пользователи", data.users_count),
+              card("Списки", data.lists_count),
+              card("Товары", data.items_count),
+              card("Куплено", data.checked_items_count),
+              card("Активные приглашения", data.invites_active_count),
+              card("Ожидающие приглашения", data.pending_invites_count),
+              card("Срок приглашения", `${{data.invite_token_hours}} ч.`, true),
+              card("Название приложения", data.app_name, true),
+              card("Внешний адрес", data.external_url || "не задан", true),
+              card("Регистрация", data.allow_registration ? "разрешена" : "отключена", true),
+              card("Первичная настройка", data.setup_completed ? "завершена" : "не завершена", true),
+            ].join("");
+            statusSection.classList.remove("hidden");
+          }}
+
+          async function loadStatus() {{
+            const token = localStorage.getItem(tokenKey);
+            if (!token) {{
+              statusSection.classList.add("hidden");
+              return;
+            }}
+            const response = await fetch("/admin/status", {{
+              headers: {{ Authorization: `Bearer ${{token}}` }},
+            }});
+            if (response.status === 401 || response.status === 403) {{
+              localStorage.removeItem(tokenKey);
+              statusSection.classList.add("hidden");
+              showMessage("Нужно войти под администратором.", "error");
+              return;
+            }}
+            if (!response.ok) {{
+              showMessage("Не удалось получить статус сервера.", "error");
+              return;
+            }}
+            renderStatus(await response.json());
+            showMessage("Статус обновлён.", "ok");
+          }}
+
+          form.addEventListener("submit", async (event) => {{
+            event.preventDefault();
+            showMessage("Выполняется вход...", "");
+            const response = await fetch("/auth/login", {{
+              method: "POST",
+              headers: {{ "Content-Type": "application/json" }},
+              body: JSON.stringify({{
+                email: document.querySelector("#email").value,
+                password: document.querySelector("#password").value,
+              }}),
+            }});
+            if (!response.ok) {{
+              showMessage("Неверный email или пароль.", "error");
+              return;
+            }}
+            const data = await response.json();
+            localStorage.setItem(tokenKey, data.access_token);
+            await loadStatus();
+          }});
+
+          refreshButton.addEventListener("click", loadStatus);
+          clearTokenButton.addEventListener("click", () => {{
+            localStorage.removeItem(tokenKey);
+            statusSection.classList.add("hidden");
+            showMessage("Вы вышли из админ-панели.", "ok");
+          }});
+
+          loadStatus();
+        </script>
+      </body>
+    </html>
+    """
 
 
 def sort_items_for_display(items: list[ShoppingItem]) -> list[ShoppingItem]:
@@ -120,6 +320,11 @@ def health(db: Session = Depends(get_db)):
         "migration": current_migration(),
         "server_time": datetime.utcnow(),
     }
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def admin_page():
+    return HTMLResponse(render_admin_page())
 
 
 @app.get("/admin/status", response_model=AdminStatusResponse)
