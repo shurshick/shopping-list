@@ -330,7 +330,17 @@ private fun ShoppingScreen(
                     )
                 }
 
-                items(selectedList.items) { item ->
+                val visibleItems = remember(selectedList.items) {
+                    selectedList.items.sortedWith { first, second ->
+                        when {
+                            first.is_checked != second.is_checked -> if (first.is_checked) 1 else -1
+                            first.is_checked -> first.updated_at.compareTo(second.updated_at)
+                            else -> second.updated_at.compareTo(first.updated_at)
+                        }
+                    }
+                }
+
+                items(visibleItems) { item ->
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,

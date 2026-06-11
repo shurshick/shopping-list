@@ -31,8 +31,22 @@ with engine.begin() as connection:
     connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
     connection.execute(text("ALTER TABLE list_invites ADD COLUMN IF NOT EXISTS used_at TIMESTAMP"))
 
-app = FastAPI(title="API синхронизации списка покупок", version="0.2.3")
+app = FastAPI(title="API синхронизации списка покупок", version="0.2.4")
 app.include_router(setup_router)
+
+
+def sort_items_for_display(items: list[ShoppingItem]) -> list[ShoppingItem]:
+    def item_timestamp(item: ShoppingItem) -> float:
+        return item.updated_at.timestamp() if item.updated_at is not None else 0
+
+    return sorted(
+        items,
+        key=lambda item: (
+            item.is_checked,
+            item_timestamp(item) if item.is_checked else -item_timestamp(item),
+            item.id,
+        ),
+    )
 
 
 def require_list_access(db: Session, user: User, list_id: int) -> ShoppingList:
@@ -105,6 +119,8 @@ def sync(current_user: User = Depends(get_current_user), db: Session = Depends(g
         .options(selectinload(ShoppingList.items))
         .order_by(ShoppingList.updated_at.desc())
     ).all()
+    for shopping_list in lists:
+        shopping_list.items = sort_items_for_display(shopping_list.items)
     return {"lists": lists}
 
 
