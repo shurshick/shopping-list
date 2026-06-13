@@ -25,6 +25,8 @@ class PublicServerConfig(BaseModel):
 
 class ListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    client_operation_id: str | None = Field(default=None, max_length=64)
+    temp_id: str | None = Field(default=None, max_length=64)
 
 
 class ListUpdate(BaseModel):
@@ -34,6 +36,9 @@ class ListUpdate(BaseModel):
 class ItemCreate(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     quantity: str = Field(default="", max_length=80)
+    is_checked: bool = False
+    client_operation_id: str | None = Field(default=None, max_length=64)
+    temp_id: str | None = Field(default=None, max_length=64)
 
 
 class ItemUpdate(BaseModel):

@@ -19,26 +19,47 @@ interface ShoppingApi {
     suspend fun sync(@Header("Authorization") authorization: String): SyncResponse
 
     @POST("lists")
-    suspend fun createList(@Header("Authorization") authorization: String, @Body request: ListCreate)
+    suspend fun createList(
+        @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
+        @Body request: ListCreate
+    )
 
     @PATCH("lists/{listId}")
     suspend fun updateList(
         @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
         @Path("listId") listId: Int,
         @Body request: ListUpdate
     )
 
     @DELETE("lists/{listId}")
-    suspend fun deleteList(@Header("Authorization") authorization: String, @Path("listId") listId: Int)
+    suspend fun deleteList(
+        @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
+        @Path("listId") listId: Int
+    )
 
     @DELETE("lists/{listId}/items")
-    suspend fun clearList(@Header("Authorization") authorization: String, @Path("listId") listId: Int)
+    suspend fun clearList(
+        @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
+        @Path("listId") listId: Int
+    )
 
     @DELETE("lists/{listId}/items/checked")
-    suspend fun clearCheckedItems(@Header("Authorization") authorization: String, @Path("listId") listId: Int)
+    suspend fun clearCheckedItems(
+        @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
+        @Path("listId") listId: Int
+    )
 
     @PATCH("lists/{listId}/items/checked")
-    suspend fun restoreCheckedItems(@Header("Authorization") authorization: String, @Path("listId") listId: Int)
+    suspend fun restoreCheckedItems(
+        @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
+        @Path("listId") listId: Int
+    )
 
     @POST("lists/{listId}/copy")
     suspend fun copyList(@Header("Authorization") authorization: String, @Path("listId") listId: Int)
@@ -64,6 +85,7 @@ interface ShoppingApi {
     @POST("lists/{listId}/items")
     suspend fun createItem(
         @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
         @Path("listId") listId: Int,
         @Body request: ItemCreate
     ): ShoppingItemDto
@@ -87,10 +109,15 @@ interface ShoppingApi {
     @PATCH("items/{itemId}")
     suspend fun updateItem(
         @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
         @Path("itemId") itemId: Int,
         @Body request: ItemUpdate
     )
 
     @DELETE("items/{itemId}")
-    suspend fun deleteItem(@Header("Authorization") authorization: String, @Path("itemId") itemId: Int)
+    suspend fun deleteItem(
+        @Header("Authorization") authorization: String,
+        @Header("X-Client-Operation-Id") clientOperationId: String? = null,
+        @Path("itemId") itemId: Int
+    )
 }

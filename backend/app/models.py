@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -81,4 +81,18 @@ class ActivityLog(Base):
     item_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     item_name: Mapped[str] = mapped_column(String(180), default="")
     details: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class ClientOperation(Base):
+    __tablename__ = "client_operations"
+    __table_args__ = (UniqueConstraint("user_id", "client_operation_id", name="uq_client_operation_user_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    client_operation_id: Mapped[str] = mapped_column(String(64), index=True)
+    operation_type: Mapped[str] = mapped_column(String(80))
+    temp_id: Mapped[str] = mapped_column(String(64), default="")
+    resource_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

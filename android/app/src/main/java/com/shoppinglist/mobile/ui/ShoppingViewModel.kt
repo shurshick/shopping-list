@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 data class ShoppingUiState(
     val token: String? = null,
@@ -50,8 +51,10 @@ data class ShoppingUiState(
 
 private data class PendingOperation(
     val type: String,
+    val clientOperationId: String? = null,
     val listId: Int? = null,
     val itemId: Int? = null,
+    val tempId: String? = null,
     val name: String? = null,
     val quantity: String? = null,
     val isChecked: Boolean? = null
@@ -159,9 +162,20 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun createList(name: String) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
+        val operationId = newOperationId()
+        val tempId = nextTempId().toString()
         runOnlineThenSync(
-            online = { api().createList("Bearer $token", ListCreate(name)) },
-            offline = { setOfflineMessage("Список будет создан после восстановления связи") }
+            online = {
+                api().createList(
+                    authorization = "Bearer $token",
+                    clientOperationId = operationId,
+                    request = ListCreate(name, client_operation_id = operationId, temp_id = tempId)
+                )
+            },
+            offline = {
+                enqueue(PendingOperation("create_list", clientOperationId = operationId, tempId = tempId, name = name))
+                setOfflineMessage("Список будет создан после восстановления связи")
+            }
         )
     }
 
@@ -170,11 +184,25 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         val listId = _state.value.selectedListId ?: return@launch
         addCatalogProduct(name)
         val tempItem = ShoppingItemDto(nextTempId(), name, quantity, false, localTimestamp())
+        val operationId = newOperationId()
         applyLocalItem(listId, tempItem)
         runOnlineThenSync(
-            online = { api().createItem("Bearer $token", listId, ItemCreate(name, quantity)) },
+            online = {
+                api().createItem(
+                    authorization = "Bearer $token",
+                    clientOperationId = operationId,
+                    listId = listId,
+                    request = ItemCreate(
+                        name = name,
+                        quantity = quantity,
+                        is_checked = false,
+                        client_operation_id = operationId,
+                        temp_id = tempItem.id.toString()
+                    )
+                )
+            },
             offline = {
-                enqueue(PendingOperation("create_item", listId = listId, itemId = tempItem.id, name = name, quantity = quantity, isChecked = false))
+                enqueue(PendingOperation("create_item", clientOperationId = operationId, listId = listId, itemId = tempItem.id, tempId = tempItem.id.toString(), name = name, quantity = quantity, isChecked = false))
                 setOfflineMessage("Товар сохранён на телефоне и отправится при синхронизации")
             }
         )
@@ -188,10 +216,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             updateQueuedCreatedItem(itemId, isChecked = checked)
             return@launch
         }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().updateItem("Bearer $token", itemId, ItemUpdate(is_checked = checked)) },
+            online = {
+                api().updateItem(
+                    authorization = "Bearer $token",
+                    clientOperationId = operationId,
+                    itemId = itemId,
+                    request = ItemUpdate(is_checked = checked)
+                )
+            },
             offline = {
-                enqueue(PendingOperation("update_item", listId = listId, itemId = itemId, isChecked = checked))
+                enqueue(PendingOperation("update_item", clientOperationId = operationId, listId = listId, itemId = itemId, isChecked = checked))
                 setOfflineMessage("Изменение сохранено и отправится при синхронизации")
             }
         )
@@ -237,10 +273,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         val token = _state.value.token ?: return@launch
         val listId = _state.value.selectedListId ?: return@launch
         updateLists { lists -> lists.map { if (it.id == listId) it.copy(name = name, updated_at = localTimestamp()) else it } }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().updateList("Bearer $token", listId, ListUpdate(name)) },
+            online = {
+                api().updateList(
+                    authorization = "Bearer $token",
+                    clientOperationId = operationId,
+                    listId = listId,
+                    request = ListUpdate(name)
+                )
+            },
             offline = {
-                enqueue(PendingOperation("rename_list", listId = listId, name = name))
+                enqueue(PendingOperation("rename_list", clientOperationId = operationId, listId = listId, name = name))
                 setOfflineMessage("Переименование отправится при синхронизации")
             }
         )
@@ -258,9 +302,10 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun deleteSelectedList() = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         val listId = _state.value.selectedListId ?: return@launch
+        val operationId = newOperationId()
         runOnlineThenSync(
             online = {
-                api().deleteList("Bearer $token", listId)
+                api().deleteList("Bearer $token", operationId, listId)
                 _state.value = _state.value.copy(selectedListId = null)
             },
             offline = { setOfflineMessage("Удаление списка доступно после подключения к серверу") }
@@ -271,10 +316,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         val token = _state.value.token ?: return@launch
         val listId = _state.value.selectedListId ?: return@launch
         updateLists { lists -> lists.map { if (it.id == listId) it.copy(items = emptyList(), updated_at = localTimestamp()) else it } }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().clearList("Bearer $token", listId) },
+            online = { api().clearList("Bearer $token", operationId, listId) },
             offline = {
-                enqueue(PendingOperation("clear_list", listId = listId))
+                enqueue(PendingOperation("clear_list", clientOperationId = operationId, listId = listId))
                 setOfflineMessage("Очистка списка отправится при синхронизации")
             }
         )
@@ -288,10 +334,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 if (list.id == listId) list.copy(items = list.items.filterNot { it.is_checked }, updated_at = localTimestamp()) else list
             }
         }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().clearCheckedItems("Bearer $token", listId) },
+            online = { api().clearCheckedItems("Bearer $token", operationId, listId) },
             offline = {
-                enqueue(PendingOperation("clear_checked", listId = listId))
+                enqueue(PendingOperation("clear_checked", clientOperationId = operationId, listId = listId))
                 setOfflineMessage("Очистка купленных отправится при синхронизации")
             }
         )
@@ -309,10 +356,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().restoreCheckedItems("Bearer $token", listId) },
+            online = { api().restoreCheckedItems("Bearer $token", operationId, listId) },
             offline = {
-                enqueue(PendingOperation("restore_checked", listId = listId))
+                enqueue(PendingOperation("restore_checked", clientOperationId = operationId, listId = listId))
                 setOfflineMessage("Купленные товары будут возвращены при синхронизации")
             }
         )
@@ -326,10 +374,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             updateQueuedCreatedItem(itemId, name = name, quantity = quantity)
             return@launch
         }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().updateItem("Bearer $token", itemId, ItemUpdate(name = name, quantity = quantity)) },
+            online = {
+                api().updateItem(
+                    authorization = "Bearer $token",
+                    clientOperationId = operationId,
+                    itemId = itemId,
+                    request = ItemUpdate(name = name, quantity = quantity)
+                )
+            },
             offline = {
-                enqueue(PendingOperation("update_item", listId = listId, itemId = itemId, name = name, quantity = quantity))
+                enqueue(PendingOperation("update_item", clientOperationId = operationId, listId = listId, itemId = itemId, name = name, quantity = quantity))
                 setOfflineMessage("Изменение товара отправится при синхронизации")
             }
         )
@@ -346,10 +402,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             showUndoDelete(message = "Товар удалён", updatePendingCount = true)
             return@launch
         }
+        val operationId = newOperationId()
         runOnlineThenSync(
-            online = { api().deleteItem("Bearer $token", itemId) },
+            online = { api().deleteItem("Bearer $token", operationId, itemId) },
             offline = {
-                enqueue(PendingOperation("delete_item", listId = snapshot.listId, itemId = itemId))
+                enqueue(PendingOperation("delete_item", clientOperationId = operationId, listId = snapshot.listId, itemId = itemId))
                 showUndoDelete(message = "Товар удалён. Изменение отправится при синхронизации")
             },
             keepUndo = true
@@ -368,8 +425,10 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             enqueue(
                 PendingOperation(
                     "create_item",
+                    clientOperationId = newOperationId(),
                     listId = deleted.listId,
                     itemId = deleted.item.id,
+                    tempId = deleted.item.id.toString(),
                     name = deleted.item.name,
                     quantity = deleted.item.quantity,
                     isChecked = deleted.item.is_checked
@@ -378,19 +437,31 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             update { copy(canUndoDelete = false, message = "Удаление отменено") }
             return@launch
         }
+        val restoreOperationId = newOperationId()
+        val restoreTempId = nextTempId()
         runOnlineThenSync(
             online = {
-                val restored = api().createItem("Bearer $token", deleted.listId, ItemCreate(deleted.item.name, deleted.item.quantity))
-                if (deleted.item.is_checked) {
-                    api().updateItem("Bearer $token", restored.id, ItemUpdate(is_checked = true))
-                }
+                api().createItem(
+                    authorization = "Bearer $token",
+                    clientOperationId = restoreOperationId,
+                    listId = deleted.listId,
+                    request = ItemCreate(
+                        name = deleted.item.name,
+                        quantity = deleted.item.quantity,
+                        is_checked = deleted.item.is_checked,
+                        client_operation_id = restoreOperationId,
+                        temp_id = restoreTempId.toString()
+                    )
+                )
             },
             offline = {
                 enqueue(
                     PendingOperation(
                         "create_item",
+                        clientOperationId = restoreOperationId,
                         listId = deleted.listId,
-                        itemId = nextTempId(),
+                        itemId = restoreTempId,
+                        tempId = restoreTempId.toString(),
                         name = deleted.item.name,
                         quantity = deleted.item.quantity,
                         isChecked = deleted.item.is_checked
@@ -512,48 +583,73 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private suspend fun replayPendingOperations(api: com.shoppinglist.mobile.data.ShoppingApi, token: String) {
-        val operations = pendingOperations
+        val operations = pendingOperations.map { it.withOperationId() }
         if (operations.isEmpty()) return
+        if (operations != pendingOperations) {
+            pendingOperations = operations
+            savePendingOperations()
+        }
         loop@ for (operation in operations) {
             when (operation.type) {
+                "create_list" -> {
+                    api.createList(
+                        authorization = "Bearer $token",
+                        clientOperationId = operation.operationId(),
+                        request = ListCreate(
+                            name = operation.name.orEmpty(),
+                            client_operation_id = operation.operationId(),
+                            temp_id = operation.tempId ?: operation.itemId?.toString()
+                        )
+                    )
+                }
                 "create_item" -> {
                     val listId = operation.listId ?: continue@loop
-                    val created = api.createItem(
-                        "Bearer $token",
-                        listId,
-                        ItemCreate(operation.name.orEmpty(), operation.quantity.orEmpty())
+                    api.createItem(
+                        authorization = "Bearer $token",
+                        clientOperationId = operation.operationId(),
+                        listId = listId,
+                        request = ItemCreate(
+                            name = operation.name.orEmpty(),
+                            quantity = operation.quantity.orEmpty(),
+                            is_checked = operation.isChecked == true,
+                            client_operation_id = operation.operationId(),
+                            temp_id = operation.tempId ?: operation.itemId?.toString()
+                        )
                     )
-                    if (operation.isChecked == true) {
-                        api.updateItem("Bearer $token", created.id, ItemUpdate(is_checked = true))
-                    }
                 }
                 "update_item" -> {
                     val itemId = operation.itemId ?: continue@loop
                     api.updateItem(
-                        "Bearer $token",
-                        itemId,
-                        ItemUpdate(name = operation.name, quantity = operation.quantity, is_checked = operation.isChecked)
+                        authorization = "Bearer $token",
+                        clientOperationId = operation.operationId(),
+                        itemId = itemId,
+                        request = ItemUpdate(name = operation.name, quantity = operation.quantity, is_checked = operation.isChecked)
                     )
                 }
                 "delete_item" -> {
                     val itemId = operation.itemId ?: continue@loop
-                    api.deleteItem("Bearer $token", itemId)
+                    api.deleteItem("Bearer $token", operation.operationId(), itemId)
                 }
                 "clear_list" -> {
                     val listId = operation.listId ?: continue@loop
-                    api.clearList("Bearer $token", listId)
+                    api.clearList("Bearer $token", operation.operationId(), listId)
                 }
                 "clear_checked" -> {
                     val listId = operation.listId ?: continue@loop
-                    api.clearCheckedItems("Bearer $token", listId)
+                    api.clearCheckedItems("Bearer $token", operation.operationId(), listId)
                 }
                 "restore_checked" -> {
                     val listId = operation.listId ?: continue@loop
-                    api.restoreCheckedItems("Bearer $token", listId)
+                    api.restoreCheckedItems("Bearer $token", operation.operationId(), listId)
                 }
                 "rename_list" -> {
                     val listId = operation.listId ?: continue@loop
-                    api.updateList("Bearer $token", listId, ListUpdate(operation.name.orEmpty()))
+                    api.updateList(
+                        authorization = "Bearer $token",
+                        clientOperationId = operation.operationId(),
+                        listId = listId,
+                        request = ListUpdate(operation.name.orEmpty())
+                    )
                 }
             }
         }
@@ -562,7 +658,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun enqueue(operation: PendingOperation) {
-        pendingOperations = compactOperations(pendingOperations + operation)
+        pendingOperations = compactOperations(pendingOperations + operation.withOperationId())
         savePendingOperations()
         _state.value = _state.value.copy(pendingOperationCount = pendingOperations.size)
     }
@@ -712,6 +808,14 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private fun api() = ApiClient.create(_state.value.serverUrl)
 
     private fun localTimestamp(): String = java.time.Instant.now().toString()
+
+    private fun newOperationId(): String = UUID.randomUUID().toString()
+
+    private fun PendingOperation.withOperationId(): PendingOperation {
+        return if (clientOperationId.isNullOrBlank()) copy(clientOperationId = newOperationId()) else this
+    }
+
+    private fun PendingOperation.operationId(): String = clientOperationId ?: newOperationId()
 
     private fun nextTempId(): Int {
         val nextId = preferences.getInt("nextTempItemId", -1)

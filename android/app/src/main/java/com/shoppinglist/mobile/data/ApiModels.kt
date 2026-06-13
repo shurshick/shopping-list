@@ -3,9 +3,19 @@ package com.shoppinglist.mobile.data
 data class AuthRequest(val email: String, val password: String)
 data class TokenResponse(val access_token: String, val token_type: String)
 
-data class ListCreate(val name: String)
+data class ListCreate(
+    val name: String,
+    val client_operation_id: String? = null,
+    val temp_id: String? = null
+)
 data class ListUpdate(val name: String)
-data class ItemCreate(val name: String, val quantity: String = "")
+data class ItemCreate(
+    val name: String,
+    val quantity: String = "",
+    val is_checked: Boolean = false,
+    val client_operation_id: String? = null,
+    val temp_id: String? = null
+)
 data class ItemUpdate(val name: String? = null, val quantity: String? = null, val is_checked: Boolean? = null)
 data class ShareRequest(val email: String)
 data class InviteResponse(val token: String, val url: String, val app_url: String, val expires_at: String? = null)

@@ -1,8 +1,10 @@
+import json
 import secrets
 from html import escape
 from datetime import datetime, timedelta
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import delete, func, select, text
@@ -10,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
 from .database import engine, get_db
-from .models import ActivityLog, ListInvite, ListMember, ShoppingItem, ShoppingList, User
+from .models import ActivityLog, ClientOperation, ListInvite, ListMember, ShoppingItem, ShoppingList, User
 from .rate_limit import check_rate_limit
 from .schemas import (
     ActivityResponse,
@@ -32,7 +34,7 @@ from .security import create_access_token, get_current_user, hash_password, veri
 from .setup import get_server_settings, router as setup_router
 
 
-APP_VERSION = "1.3.7"
+APP_VERSION = "1.3.8"
 
 app = FastAPI(title="API синхронизации списка покупок", version=APP_VERSION)
 app.include_router(setup_router)
@@ -335,6 +337,52 @@ def write_activity(
     )
 
 
+def normalize_client_operation_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def replay_client_operation(db: Session, user: User, client_operation_id: str | None):
+    client_operation_id = normalize_client_operation_id(client_operation_id)
+    if client_operation_id is None:
+        return None
+    operation = db.scalar(
+        select(ClientOperation).where(
+            ClientOperation.user_id == user.id,
+            ClientOperation.client_operation_id == client_operation_id,
+        )
+    )
+    if operation is None:
+        return None
+    return json.loads(operation.response_json)
+
+
+def remember_client_operation(
+    db: Session,
+    user: User,
+    client_operation_id: str | None,
+    operation_type: str,
+    response,
+    temp_id: str | int | None = None,
+    resource_id: int | None = None,
+) -> None:
+    client_operation_id = normalize_client_operation_id(client_operation_id)
+    if client_operation_id is None:
+        return
+    db.add(
+        ClientOperation(
+            user_id=user.id,
+            client_operation_id=client_operation_id,
+            operation_type=operation_type,
+            temp_id="" if temp_id is None else str(temp_id),
+            resource_id=resource_id,
+            response_json=json.dumps(jsonable_encoder(response), ensure_ascii=False),
+        )
+    )
+
+
 @app.get("/health", response_model=HealthResponse)
 def health(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
@@ -436,33 +484,66 @@ def sync(current_user: User = Depends(get_current_user), db: Session = Depends(g
 
 
 @app.post("/lists")
-def create_list(payload: ListCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_list(
+    payload: ListCreate,
+    x_client_operation_id: str | None = Header(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    client_operation_id = payload.client_operation_id or x_client_operation_id
+    replayed = replay_client_operation(db, current_user, client_operation_id)
+    if replayed is not None:
+        return replayed
     shopping_list = ShoppingList(name=payload.name, owner_id=current_user.id)
     db.add(shopping_list)
     db.flush()
     db.add(ListMember(list_id=shopping_list.id, user_id=current_user.id))
     write_activity(db, current_user, "list_created", list_id=shopping_list.id, details=shopping_list.name)
+    response = {"id": shopping_list.id, "name": shopping_list.name}
+    remember_client_operation(
+        db,
+        current_user,
+        client_operation_id,
+        "create_list",
+        response,
+        temp_id=payload.temp_id,
+        resource_id=shopping_list.id,
+    )
     db.commit()
-    return {"id": shopping_list.id, "name": shopping_list.name}
+    return response
 
 
 @app.patch("/lists/{list_id}")
 def update_list(
     list_id: int,
     payload: ListUpdate,
+    x_client_operation_id: str | None = Header(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     shopping_list = require_list_owner(db, current_user, list_id)
     old_name = shopping_list.name
     shopping_list.name = payload.name
     write_activity(db, current_user, "list_renamed", list_id=shopping_list.id, details=f"{old_name} -> {payload.name}")
+    response = {"id": shopping_list.id, "name": shopping_list.name}
+    remember_client_operation(db, current_user, x_client_operation_id, "rename_list", response, resource_id=shopping_list.id)
     db.commit()
-    return {"id": shopping_list.id, "name": shopping_list.name}
+    return response
 
 
 @app.delete("/lists/{list_id}")
-def delete_list(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_list(
+    list_id: int,
+    x_client_operation_id: str | None = Header(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     shopping_list = require_list_access(db, current_user, list_id)
     if shopping_list.owner_id == current_user.id:
         write_activity(db, current_user, "list_deleted", list_id=shopping_list.id, details=shopping_list.name)
@@ -474,23 +555,43 @@ def delete_list(list_id: int, current_user: User = Depends(get_current_user), db
         if membership is not None:
             write_activity(db, current_user, "list_left", list_id=shopping_list.id, details=shopping_list.name)
             db.delete(membership)
+    response = {"status": "deleted"}
+    remember_client_operation(db, current_user, x_client_operation_id, "delete_list", response, resource_id=list_id)
     db.commit()
-    return {"status": "deleted"}
+    return response
 
 
 @app.delete("/lists/{list_id}/items")
-def clear_list(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def clear_list(
+    list_id: int,
+    x_client_operation_id: str | None = Header(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     shopping_list = require_list_access(db, current_user, list_id)
     items = db.scalars(select(ShoppingItem).where(ShoppingItem.list_id == shopping_list.id)).all()
     for item in items:
         db.delete(item)
     write_activity(db, current_user, "list_cleared", list_id=shopping_list.id, details=f"Удалено позиций: {len(items)}")
+    response = {"status": "cleared"}
+    remember_client_operation(db, current_user, x_client_operation_id, "clear_list", response, resource_id=list_id)
     db.commit()
-    return {"status": "cleared"}
+    return response
 
 
 @app.delete("/lists/{list_id}/items/checked")
-def clear_checked_items(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def clear_checked_items(
+    list_id: int,
+    x_client_operation_id: str | None = Header(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     shopping_list = require_list_access(db, current_user, list_id)
     items = db.scalars(
         select(ShoppingItem).where(ShoppingItem.list_id == shopping_list.id, ShoppingItem.is_checked.is_(True))
@@ -498,12 +599,22 @@ def clear_checked_items(list_id: int, current_user: User = Depends(get_current_u
     for item in items:
         db.delete(item)
     write_activity(db, current_user, "checked_items_cleared", list_id=shopping_list.id, details=f"Удалено позиций: {len(items)}")
+    response = {"status": "cleared"}
+    remember_client_operation(db, current_user, x_client_operation_id, "clear_checked", response, resource_id=list_id)
     db.commit()
-    return {"status": "cleared"}
+    return response
 
 
 @app.patch("/lists/{list_id}/items/checked")
-def restore_checked_items(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def restore_checked_items(
+    list_id: int,
+    x_client_operation_id: str | None = Header(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     shopping_list = require_list_access(db, current_user, list_id)
     items = db.scalars(
         select(ShoppingItem).where(ShoppingItem.list_id == shopping_list.id, ShoppingItem.is_checked.is_(True))
@@ -511,8 +622,10 @@ def restore_checked_items(list_id: int, current_user: User = Depends(get_current
     for item in items:
         item.is_checked = False
     write_activity(db, current_user, "checked_items_restored", list_id=shopping_list.id, details=f"Возвращено позиций: {len(items)}")
+    response = {"status": "restored", "count": len(items)}
+    remember_client_operation(db, current_user, x_client_operation_id, "restore_checked", response, resource_id=list_id)
     db.commit()
-    return {"status": "restored", "count": len(items)}
+    return response
 
 
 @app.post("/lists/{list_id}/copy")
@@ -682,26 +795,51 @@ def join_page(token: str, db: Session = Depends(get_db)):
 def create_item(
     list_id: int,
     payload: ItemCreate,
+    x_client_operation_id: str | None = Header(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    client_operation_id = payload.client_operation_id or x_client_operation_id
+    replayed = replay_client_operation(db, current_user, client_operation_id)
+    if replayed is not None:
+        return replayed
     require_list_access(db, current_user, list_id)
-    item = ShoppingItem(list_id=list_id, name=payload.name, quantity=payload.quantity)
+    item = ShoppingItem(list_id=list_id, name=payload.name, quantity=payload.quantity, is_checked=payload.is_checked)
     db.add(item)
     db.flush()
-    write_activity(db, current_user, "item_created", list_id=list_id, item_id=item.id, item_name=item.name, details=item.quantity)
-    db.commit()
     db.refresh(item)
-    return item
+    write_activity(db, current_user, "item_created", list_id=list_id, item_id=item.id, item_name=item.name, details=item.quantity)
+    response = {
+        "id": item.id,
+        "name": item.name,
+        "quantity": item.quantity,
+        "is_checked": item.is_checked,
+        "updated_at": item.updated_at,
+    }
+    remember_client_operation(
+        db,
+        current_user,
+        client_operation_id,
+        "create_item",
+        response,
+        temp_id=payload.temp_id,
+        resource_id=item.id,
+    )
+    db.commit()
+    return response
 
 
 @app.patch("/items/{item_id}")
 def update_item(
     item_id: int,
     payload: ItemUpdate,
+    x_client_operation_id: str | None = Header(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     item = db.scalar(select(ShoppingItem).where(ShoppingItem.id == item_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
@@ -719,18 +857,38 @@ def update_item(
         action = "item_updated"
     details = f"{old_name} -> {item.name}" if old_name != item.name else item.quantity
     write_activity(db, current_user, action, list_id=item.list_id, item_id=item.id, item_name=item.name, details=details)
+    db.flush()
+    db.refresh(item)
+    response = {
+        "id": item.id,
+        "name": item.name,
+        "quantity": item.quantity,
+        "is_checked": item.is_checked,
+        "updated_at": item.updated_at,
+    }
+    remember_client_operation(db, current_user, x_client_operation_id, "update_item", response, resource_id=item.id)
     db.commit()
     db.refresh(item)
-    return item
+    return response
 
 
 @app.delete("/items/{item_id}")
-def delete_item(item_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_item(
+    item_id: int,
+    x_client_operation_id: str | None = Header(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    replayed = replay_client_operation(db, current_user, x_client_operation_id)
+    if replayed is not None:
+        return replayed
     item = db.scalar(select(ShoppingItem).where(ShoppingItem.id == item_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Товар не найден")
     require_list_access(db, current_user, item.list_id)
     write_activity(db, current_user, "item_deleted", list_id=item.list_id, item_id=item.id, item_name=item.name, details=item.quantity)
     db.delete(item)
+    response = {"status": "deleted"}
+    remember_client_operation(db, current_user, x_client_operation_id, "delete_item", response, resource_id=item_id)
     db.commit()
-    return {"status": "deleted"}
+    return response
