@@ -4,12 +4,11 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
-from alembic.runtime.migration import MigrationContext
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
-from ..database import engine, get_db
+from ..database import get_db
 from ..models import ActivityLog, ListInvite, ListMember, ShoppingItem, ShoppingList, User
 from ..rate_limit import check_rate_limit
 from ..schemas import (
@@ -29,11 +28,13 @@ from ..schemas import (
     TokenResponse,
 )
 from ..security import create_access_token, get_current_user, hash_password, verify_password
+from ..services.diagnostics_service import record_event
 from ..services.idempotency_service import remember_client_operation, replay_client_operation
+from ..services.migration_service import current_revision
 from ..setup import get_server_settings
 
 
-APP_VERSION = "1.3.9"
+APP_VERSION = "1.4.0"
 
 router = APIRouter()
 
@@ -280,7 +281,7 @@ def require_list_access(db: Session, user: User, list_id: int) -> ShoppingList:
     shopping_list = db.scalar(
         select(ShoppingList)
         .join(ListMember, ListMember.list_id == ShoppingList.id)
-        .where(ShoppingList.id == list_id, ListMember.user_id == user.id)
+        .where(ShoppingList.id == list_id, ListMember.user_id == user.id, ShoppingList.archived_at.is_(None))
     )
     if shopping_list is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Список не найден")
@@ -288,7 +289,13 @@ def require_list_access(db: Session, user: User, list_id: int) -> ShoppingList:
 
 
 def require_list_owner(db: Session, user: User, list_id: int) -> ShoppingList:
-    shopping_list = db.scalar(select(ShoppingList).where(ShoppingList.id == list_id, ShoppingList.owner_id == user.id))
+    shopping_list = db.scalar(
+        select(ShoppingList).where(
+            ShoppingList.id == list_id,
+            ShoppingList.owner_id == user.id,
+            ShoppingList.archived_at.is_(None),
+        )
+    )
     if shopping_list is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Список не найден")
     return shopping_list
@@ -305,8 +312,7 @@ def invite_is_expired(invite: ListInvite) -> bool:
 
 
 def current_migration() -> str | None:
-    with engine.connect() as connection:
-        return MigrationContext.configure(connection).get_current_revision()
+    return current_revision()
 
 
 def require_admin(user: User) -> None:
@@ -368,9 +374,15 @@ def admin_status(current_user: User = Depends(get_current_user), db: Session = D
         "checked_items_count": db.scalar(select(func.count(ShoppingItem.id)).where(ShoppingItem.is_checked.is_(True))) or 0,
         "activity_events_count": db.scalar(select(func.count(ActivityLog.id))) or 0,
         "invites_active_count": db.scalar(
-            select(func.count(ListInvite.id)).where(ListInvite.used_at.is_(None), (ListInvite.expires_at.is_(None)) | (ListInvite.expires_at >= now))
+            select(func.count(ListInvite.id)).where(
+                ListInvite.used_at.is_(None),
+                ListInvite.revoked_at.is_(None),
+                (ListInvite.expires_at.is_(None)) | (ListInvite.expires_at >= now),
+            )
         ) or 0,
-        "pending_invites_count": db.scalar(select(func.count(ListInvite.id)).where(ListInvite.used_at.is_(None))) or 0,
+        "pending_invites_count": db.scalar(
+            select(func.count(ListInvite.id)).where(ListInvite.used_at.is_(None), ListInvite.revoked_at.is_(None))
+        ) or 0,
         "invite_token_hours": settings.invite_token_hours,
         "app_name": server_settings.app_name,
         "external_url": server_settings.external_url,
@@ -417,7 +429,13 @@ def login(payload: AuthRequest, request: Request, db: Session = Depends(get_db))
     check_rate_limit(request, "login", payload.email, limit=10, window_seconds=60)
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if user is None or not verify_password(payload.password, user.password_hash):
+        record_event("login failed", payload.email, "warning")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный email или пароль")
+    if not user.is_active:
+        record_event("login disabled user", payload.email, "warning")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Учетная запись отключена")
+    user.last_login_at = datetime.utcnow()
+    db.commit()
     return TokenResponse(access_token=create_access_token(user.id))
 
 
@@ -426,7 +444,7 @@ def sync(current_user: User = Depends(get_current_user), db: Session = Depends(g
     lists = db.scalars(
         select(ShoppingList)
         .join(ListMember, ListMember.list_id == ShoppingList.id)
-        .where(ListMember.user_id == current_user.id)
+        .where(ListMember.user_id == current_user.id, ShoppingList.archived_at.is_(None))
         .options(selectinload(ShoppingList.items))
         .order_by(ShoppingList.updated_at.desc())
     ).all()
@@ -694,7 +712,7 @@ def create_invite(list_id: int, current_user: User = Depends(get_current_user), 
 @router.post("/invites/{token}/accept")
 def accept_invite(token: str, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     invite = db.scalar(select(ListInvite).where(ListInvite.token == token).with_for_update())
-    if invite is None or invite.used_at is not None or invite_is_expired(invite):
+    if invite is None or invite.used_at is not None or invite.revoked_at is not None or invite_is_expired(invite):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Приглашение не найдено")
     add_member_if_missing(db, invite.list_id, current_user.id)
     invite.used_at = datetime.utcnow()
@@ -706,7 +724,7 @@ def accept_invite(token: str, current_user: User = Depends(get_current_user), db
 @router.get("/join/{token}", response_class=HTMLResponse)
 def join_page(token: str, db: Session = Depends(get_db)):
     invite = db.scalar(select(ListInvite).where(ListInvite.token == token))
-    if invite is None or invite.used_at is not None or invite_is_expired(invite):
+    if invite is None or invite.used_at is not None or invite.revoked_at is not None or invite_is_expired(invite):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Приглашение не найдено")
     shopping_list = db.get(ShoppingList, invite.list_id)
     app_url = f"shoppinglist://join/{escape(token)}"

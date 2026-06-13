@@ -257,10 +257,42 @@ docker compose up -d
 
 Контейнер API применяет миграции базы данных автоматически перед запуском сервера.
 
+## Эксплуатация и диагностика v1.4.0
+
+В релизе `v1.4.0` добавлены отдельные инструменты для обслуживания self-hosted сервера:
+
+- `GET /health/live` - быстрая проверка, что процесс API запущен.
+- `GET /health/ready` - проверка готовности API, подключения к БД и состояния миграций.
+- `GET /health/db` - безопасная проверка БД без раскрытия строки подключения.
+- `GET /metrics` - безопасные счетчики в JSON без email, токенов и секретов.
+- `GET /admin/users` - список пользователей, блокировка, разблокировка и смена пароля.
+- `GET /admin/lists` - просмотр списков, архивирование и восстановление.
+- `GET /admin/invites` - просмотр и отзыв invite-ссылок.
+- `GET /admin/system` - версия backend, БД, Alembic revision, uptime и режим регистрации.
+- `GET /admin/logs` и `GET /admin/diagnostics` - последние события и диагностическая сводка.
+
+CLI-команды обслуживания:
+
+```bash
+python -m app.cli backup --output backup.json
+python -m app.cli backup --output backup-with-auth.json --include-auth-hashes
+python -m app.cli restore --input backup.json
+python -m app.cli db-status
+```
+
+Перед обновлением сервера рекомендуется сделать backup, обновить Docker image, перезапустить API и проверить `/health/ready` и `/admin/system`.
+
+Подробные инструкции:
+
+- [Эксплуатация сервера](docs/operations.md)
+- [Backup и restore](docs/backup_restore.md)
+
 ## Полезные ссылки
 
 - [Развертывание серверной части с GitHub](docs/github-deploy.md)
 - [Развертывание через TrueNAS Custom App](docs/truenas-custom-app.md)
+- [Эксплуатация сервера](docs/operations.md)
+- [Backup и restore](docs/backup_restore.md)
 - [Описание API](docs/api.md)
 - [Архитектура проекта](docs/architecture.md)
 - [Безопасность](SECURITY.md)

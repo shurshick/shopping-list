@@ -1,6 +1,6 @@
 # Архитектура проекта
 
-Документ актуален для `v1.3.9-project-cleanup`.
+Документ актуален для `v1.4.0`.
 
 ## Общая схема
 
@@ -68,4 +68,4 @@
 - готовый GHCR-образ `ghcr.io/shurshick/shopping-list-api`;
 - TrueNAS Custom App YAML.
 
-Переменные окружения и имена Docker-образов в `v1.3.9-project-cleanup` не изменялись.
+В `v1.4.0` добавлены ops/admin endpoints, CLI-команды обслуживания и миграция `20260613_0004_ops_admin_fields`.

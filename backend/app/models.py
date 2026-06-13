@@ -13,6 +13,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -34,6 +36,7 @@ class ShoppingList(Base):
     name: Mapped[str] = mapped_column(String(120))
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
     members: Mapped[list["ListMember"]] = relationship(cascade="all, delete-orphan")
     items: Mapped[list["ShoppingItem"]] = relationship(cascade="all, delete-orphan")
@@ -67,6 +70,7 @@ class ListInvite(Base):
     list_id: Mapped[int] = mapped_column(ForeignKey("shopping_lists.id", ondelete="CASCADE"))
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
