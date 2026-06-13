@@ -17,6 +17,8 @@ import com.shoppinglist.mobile.data.ListUpdate
 import com.shoppinglist.mobile.data.ShareRequest
 import com.shoppinglist.mobile.data.ShoppingItemDto
 import com.shoppinglist.mobile.data.ShoppingListDto
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -62,6 +64,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val gson = Gson()
     private var pendingOperations = loadPendingOperations()
     private var lastDeletedItem: DeletedItemSnapshot? = null
+    private var undoDeleteJob: Job? = null
     private val defaultProducts = listOf(
         "Хлеб",
         "Молоко",
@@ -337,14 +340,14 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         if (itemId < 0) {
             pendingOperations = pendingOperations.filterNot { it.itemId == itemId }
             savePendingOperations()
-            update { copy(canUndoDelete = true, pendingOperationCount = pendingOperations.size, message = "Товар удалён") }
+            showUndoDelete(message = "Товар удалён", updatePendingCount = true)
             return@launch
         }
         runOnlineThenSync(
             online = { api().deleteItem("Bearer $token", itemId) },
             offline = {
                 enqueue(PendingOperation("delete_item", listId = snapshot.listId, itemId = itemId))
-                update { copy(canUndoDelete = true, message = "Товар удалён. Изменение отправится при синхронизации") }
+                showUndoDelete(message = "Товар удалён. Изменение отправится при синхронизации")
             },
             keepUndo = true
         )
@@ -353,6 +356,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun undoDeleteItem() = viewModelScope.launch {
         val deleted = lastDeletedItem ?: return@launch
         val token = _state.value.token ?: return@launch
+        undoDeleteJob?.cancel()
         lastDeletedItem = null
         applyLocalItem(deleted.listId, deleted.item.copy(updated_at = localTimestamp()))
         pendingOperations = pendingOperations.filterNot { it.type == "delete_item" && it.itemId == deleted.item.id }
@@ -449,6 +453,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun logout() {
         preferences.edit().remove("token").apply()
+        undoDeleteJob?.cancel()
         lastDeletedItem = null
         update {
             copy(
@@ -476,9 +481,13 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             online()
             sync()
             if (!keepUndo) {
+                undoDeleteJob?.cancel()
                 lastDeletedItem = null
             }
             _state.value = _state.value.copy(canUndoDelete = keepUndo && lastDeletedItem != null)
+            if (keepUndo && lastDeletedItem != null) {
+                startUndoDeleteTimer()
+            }
         } catch (error: Exception) {
             offline()
             _state.value = _state.value.copy(isOffline = true)
@@ -648,6 +657,26 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     private fun update(block: ShoppingUiState.() -> ShoppingUiState) {
         _state.value = _state.value.block()
+    }
+
+    private fun showUndoDelete(message: String, updatePendingCount: Boolean = false) {
+        update {
+            copy(
+                canUndoDelete = true,
+                pendingOperationCount = if (updatePendingCount) pendingOperations.size else pendingOperationCount,
+                message = message
+            )
+        }
+        startUndoDeleteTimer()
+    }
+
+    private fun startUndoDeleteTimer() {
+        undoDeleteJob?.cancel()
+        undoDeleteJob = viewModelScope.launch {
+            delay(5000)
+            lastDeletedItem = null
+            update { copy(canUndoDelete = false) }
+        }
     }
 
     private fun api() = ApiClient.create(_state.value.serverUrl)
