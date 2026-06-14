@@ -69,6 +69,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,14 +83,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.shoppinglist.mobile.BuildConfig
+import com.shoppinglist.mobile.data.repository.UpdateRepository
+import com.shoppinglist.mobile.domain.model.AppUpdateInfo
 import com.shoppinglist.mobile.ui.ShoppingUiState
 import com.shoppinglist.mobile.ui.ShoppingViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ShoppingViewModel by viewModels()
@@ -263,6 +261,10 @@ private fun ShoppingScreen(
     var settingsDialogOpen by remember { mutableStateOf(false) }
     var aboutDialogOpen by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<com.shoppinglist.mobile.data.ShoppingItemDto?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val updateRepository = remember { UpdateRepository(context.applicationContext) }
+    var appUpdateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
     val selectedList = state.lists.firstOrNull { it.id == state.selectedListId }
     val visibleItems = remember(selectedList?.items) {
         selectedList?.items.orEmpty().sortedWith { first, second ->
@@ -275,6 +277,10 @@ private fun ShoppingScreen(
     }
     val activeItems = remember(visibleItems) { visibleItems.filterNot { it.is_checked } }
     val purchasedItems = remember(visibleItems) { visibleItems.filter { it.is_checked } }
+
+    LaunchedEffect(Unit) {
+        appUpdateInfo = updateRepository.checkForUpdate()
+    }
 
     Scaffold(
         topBar = {
@@ -402,6 +408,23 @@ private fun ShoppingScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            appUpdateInfo?.let { updateInfo ->
+                item {
+                    UpdateBanner(
+                        updateInfo = updateInfo,
+                        onDownload = {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo.releaseUrl)))
+                        },
+                        onDismiss = {
+                            scope.launch {
+                                updateRepository.dismissUpdate(updateInfo.latestVersion)
+                                appUpdateInfo = null
+                            }
+                        }
+                    )
+                }
+            }
+
             if (selectedList != null) {
                 item {
                     ItemCreateCard(
@@ -621,7 +644,7 @@ private fun ShoppingScreen(
     }
 
     if (aboutDialogOpen) {
-        AboutDialog(onDismiss = { aboutDialogOpen = false })
+        AboutDialog(updateRepository = updateRepository, onDismiss = { aboutDialogOpen = false })
     }
 
     if (catalogDialogOpen) {
@@ -631,6 +654,37 @@ private fun ShoppingScreen(
             onAdd = onAddCatalogProduct,
             onRemove = onRemoveCatalogProduct
         )
+    }
+}
+
+@Composable
+private fun UpdateBanner(
+    updateInfo: AppUpdateInfo,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(
+                text = "Доступна новая версия приложения: ${updateInfo.latestVersion}",
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onDownload) {
+                Text("Скачать")
+            }
+            TextButton(onClick = onDismiss) {
+                Text("Скрыть")
+            }
+        }
     }
 }
 
@@ -1328,7 +1382,7 @@ private fun SettingsDialog(
 }
 
 @Composable
-private fun AboutDialog(onDismiss: () -> Unit) {
+private fun AboutDialog(updateRepository: UpdateRepository, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val projectUrl = "https://github.com/shurshick/shopping-list"
@@ -1356,15 +1410,13 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                             isCheckingUpdate = true
                             updateStatus = "Проверяем обновление..."
                             updateUrl = null
-                            val result = checkLatestRelease()
+                            val result = updateRepository.checkForUpdate(force = true)
                             isCheckingUpdate = false
                             if (result == null) {
-                                updateStatus = "Не удалось проверить обновление."
-                            } else if (isVersionNewer(result.version, BuildConfig.VERSION_NAME)) {
-                                updateStatus = "Доступна новая версия ${result.version}."
-                                updateUrl = result.apkUrl
+                                updateStatus = ""
                             } else {
-                                updateStatus = "Установлена актуальная версия."
+                                updateStatus = "Доступна новая версия ${result.latestVersion}."
+                                updateUrl = result.releaseUrl
                             }
                         }
                     },
@@ -1401,47 +1453,6 @@ private fun AboutDialog(onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("Закрыть") }
         }
     )
-}
-
-private data class ReleaseUpdateInfo(val version: String, val apkUrl: String)
-
-private suspend fun checkLatestRelease(): ReleaseUpdateInfo? = withContext(Dispatchers.IO) {
-    runCatching {
-        val connection = (URL("https://api.github.com/repos/shurshick/shopping-list/releases/latest").openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 10000
-            readTimeout = 10000
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "shopping-list-android/${BuildConfig.VERSION_NAME}")
-        }
-        connection.inputStream.bufferedReader().use { reader ->
-            val json = JSONObject(reader.readText())
-            val version = json.getString("tag_name").removePrefix("v")
-            val assets = json.getJSONArray("assets")
-            var apkUrl = ""
-            for (index in 0 until assets.length()) {
-                val asset = assets.getJSONObject(index)
-                val name = asset.optString("name")
-                if (name.endsWith(".apk")) {
-                    apkUrl = asset.getString("browser_download_url")
-                    break
-                }
-            }
-            if (apkUrl.isBlank()) null else ReleaseUpdateInfo(version, apkUrl)
-        }
-    }.getOrNull()
-}
-
-private fun isVersionNewer(latest: String, current: String): Boolean {
-    val latestParts = latest.split(".", "-").mapNotNull { it.toIntOrNull() }
-    val currentParts = current.split(".", "-").mapNotNull { it.toIntOrNull() }
-    val maxSize = maxOf(latestParts.size, currentParts.size)
-    for (index in 0 until maxSize) {
-        val latestPart = latestParts.getOrElse(index) { 0 }
-        val currentPart = currentParts.getOrElse(index) { 0 }
-        if (latestPart != currentPart) return latestPart > currentPart
-    }
-    return false
 }
 
 @Composable
