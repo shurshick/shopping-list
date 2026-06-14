@@ -34,8 +34,8 @@ def test_sync_records_client_version_for_admin_users(client):
         headers={
             **auth(admin_token),
             "X-Client-App": "shopping-list-android",
-            "X-Client-Version": "1.4.2",
-            "X-Client-Version-Code": "25",
+            "X-Client-Version": "1.4.3",
+            "X-Client-Version-Code": "26",
             "X-Client-Platform": "android",
             "X-Client-Os-Version": "14",
         },
@@ -45,8 +45,8 @@ def test_sync_records_client_version_for_admin_users(client):
 
     assert sync_response.status_code == 200
     assert user["last_client_app"] == "shopping-list-android"
-    assert user["last_client_version"] == "1.4.2"
-    assert user["last_client_version_code"] == 25
+    assert user["last_client_version"] == "1.4.3"
+    assert user["last_client_version_code"] == 26
     assert user["last_client_platform"] == "android"
     assert user["last_client_os_version"] == "14"
     assert user["last_client_seen_at"] is not None
@@ -215,7 +215,7 @@ def test_metrics_contains_counts_and_no_email(client):
     response = client.get("/metrics")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.4.1"
+    assert response.json()["version"] == "1.4.3"
     assert "users_total" in response.json()
     assert "metrics@example.com" not in response.text
 
