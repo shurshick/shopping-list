@@ -87,6 +87,7 @@ import com.shoppinglist.mobile.data.repository.UpdateRepository
 import com.shoppinglist.mobile.domain.model.AppUpdateInfo
 import com.shoppinglist.mobile.ui.ShoppingUiState
 import com.shoppinglist.mobile.ui.ShoppingViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -280,6 +281,13 @@ private fun ShoppingScreen(
 
     LaunchedEffect(Unit) {
         appUpdateInfo = updateRepository.checkForUpdate()
+    }
+
+    LaunchedEffect(appUpdateInfo?.latestVersion) {
+        if (appUpdateInfo != null) {
+            delay(10_000)
+            appUpdateInfo = null
+        }
     }
 
     Scaffold(
