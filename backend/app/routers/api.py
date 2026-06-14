@@ -34,7 +34,7 @@ from ..services.migration_service import current_revision
 from ..setup import get_server_settings
 
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.3"
 
 router = APIRouter()
 
@@ -589,7 +589,14 @@ def health(db: Session = Depends(get_db)):
 
 @router.get("/admin", response_class=HTMLResponse)
 def admin_page():
-    return HTMLResponse(render_admin_page())
+    return HTMLResponse(
+        render_admin_page(),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.get("/admin/status", response_model=AdminStatusResponse)

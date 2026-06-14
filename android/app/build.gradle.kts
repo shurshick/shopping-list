@@ -22,8 +22,8 @@ android {
         applicationId = "com.shoppinglist.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "1.4.2"
+        versionCode = 26
+        versionName = "1.4.3"
     }
 
     buildTypes {
