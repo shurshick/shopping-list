@@ -169,6 +169,12 @@ def admin_users(current_user: User = Depends(get_current_user), db: Session = De
                 "is_active": user.is_active,
                 "created_at": user.created_at,
                 "last_login_at": user.last_login_at,
+                "last_client_app": user.last_client_app,
+                "last_client_version": user.last_client_version,
+                "last_client_version_code": user.last_client_version_code,
+                "last_client_platform": user.last_client_platform,
+                "last_client_os_version": user.last_client_os_version,
+                "last_client_seen_at": user.last_client_seen_at,
                 "lists_count": count_or_zero(db, select(func.count(ListMember.id)).where(ListMember.user_id == user.id)),
             }
         )

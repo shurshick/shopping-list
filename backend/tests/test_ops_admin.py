@@ -26,6 +26,32 @@ def test_admin_can_open_admin_users(client):
     assert "password_hash" not in response.text
 
 
+def test_sync_records_client_version_for_admin_users(client):
+    admin_token = setup_admin(client)
+
+    sync_response = client.get(
+        "/sync",
+        headers={
+            **auth(admin_token),
+            "X-Client-App": "shopping-list-android",
+            "X-Client-Version": "1.4.2",
+            "X-Client-Version-Code": "25",
+            "X-Client-Platform": "android",
+            "X-Client-Os-Version": "14",
+        },
+    )
+    users_response = client.get("/admin/users", headers=auth(admin_token))
+    user = next(item for item in users_response.json()["users"] if item["email"] == "admin@example.com")
+
+    assert sync_response.status_code == 200
+    assert user["last_client_app"] == "shopping-list-android"
+    assert user["last_client_version"] == "1.4.2"
+    assert user["last_client_version_code"] == 25
+    assert user["last_client_platform"] == "android"
+    assert user["last_client_os_version"] == "14"
+    assert user["last_client_seen_at"] is not None
+
+
 def test_admin_can_disable_user_and_disabled_user_cannot_login(client):
     admin_token = setup_admin(client)
     register_user(client, "disabled@example.com", "userpass123")

@@ -34,6 +34,12 @@ def build_backup(include_auth_hashes: bool = False) -> dict[str, Any]:
                 "is_admin": user.is_admin,
                 "is_active": user.is_active,
                 "last_login_at": dt(user.last_login_at),
+                "last_client_app": user.last_client_app,
+                "last_client_version": user.last_client_version,
+                "last_client_version_code": user.last_client_version_code,
+                "last_client_platform": user.last_client_platform,
+                "last_client_os_version": user.last_client_os_version,
+                "last_client_seen_at": dt(user.last_client_seen_at),
                 "created_at": dt(user.created_at),
             }
             if include_auth_hashes:
@@ -126,6 +132,12 @@ def restore_backup(input_path: Path, force: bool = False) -> None:
                     is_admin=row.get("is_admin", False),
                     is_active=row.get("is_active", True),
                     last_login_at=parse_dt(row.get("last_login_at")),
+                    last_client_app=row.get("last_client_app", ""),
+                    last_client_version=row.get("last_client_version", ""),
+                    last_client_version_code=row.get("last_client_version_code"),
+                    last_client_platform=row.get("last_client_platform", ""),
+                    last_client_os_version=row.get("last_client_os_version", ""),
+                    last_client_seen_at=parse_dt(row.get("last_client_seen_at")),
                     created_at=parse_dt(row.get("created_at")) or datetime.utcnow(),
                 )
             )

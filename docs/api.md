@@ -43,6 +43,18 @@ Authorization: Bearer <token>
 
 Архивные списки в `/sync` не возвращаются.
 
+При `/sync` Android-клиент может передать сведения о версии приложения. Сервер сохраняет последние значения у пользователя и показывает их в `/admin/users`.
+
+```text
+X-Client-App: shopping-list-android
+X-Client-Version: 1.4.2
+X-Client-Version-Code: 25
+X-Client-Platform: android
+X-Client-Os-Version: 14
+```
+
+Старые клиенты без этих заголовков продолжают работать.
+
 ## Идемпотентность offline-операций
 
 Новые Android-клиенты отправляют UUID `client_operation_id` для операций offline queue. Его можно передать в теле `POST /lists` и `POST /lists/{list_id}/items`, а также в заголовке:

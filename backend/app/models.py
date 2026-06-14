@@ -15,6 +15,12 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_client_app: Mapped[str] = mapped_column(String(80), default="")
+    last_client_version: Mapped[str] = mapped_column(String(40), default="")
+    last_client_version_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_client_platform: Mapped[str] = mapped_column(String(40), default="")
+    last_client_os_version: Mapped[str] = mapped_column(String(80), default="")
+    last_client_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

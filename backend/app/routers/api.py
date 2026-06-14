@@ -39,6 +39,44 @@ APP_VERSION = "1.4.1"
 router = APIRouter()
 
 
+def clean_client_header(value: str | None, max_length: int) -> str:
+    if value is None:
+        return ""
+    return value.strip()[:max_length]
+
+
+def parse_client_version_code(value: str | None) -> int | None:
+    if value is None or not value.strip().isdigit():
+        return None
+    return int(value.strip()[:10])
+
+
+def update_user_client_info(
+    db: Session,
+    user: User,
+    client_app: str | None,
+    client_version: str | None,
+    client_version_code: str | None,
+    client_platform: str | None,
+    client_os_version: str | None,
+) -> None:
+    app_name = clean_client_header(client_app, 80)
+    version = clean_client_header(client_version, 40)
+    platform = clean_client_header(client_platform, 40)
+    os_version = clean_client_header(client_os_version, 80)
+    version_code = parse_client_version_code(client_version_code)
+    if not any((app_name, version, platform, os_version, version_code is not None)):
+        return
+
+    user.last_client_app = app_name
+    user.last_client_version = version
+    user.last_client_version_code = version_code
+    user.last_client_platform = platform
+    user.last_client_os_version = os_version
+    user.last_client_seen_at = datetime.utcnow()
+    db.commit()
+
+
 def render_admin_page() -> str:
     return f"""
     <!doctype html>
@@ -229,6 +267,9 @@ def render_admin_page() -> str:
                 <td>${{user.is_active ? "активен" : "отключен"}}</td>
                 <td>${{escapeHtml(formatDate(user.created_at))}}</td>
                 <td>${{escapeHtml(formatDate(user.last_login_at))}}</td>
+                <td>${{escapeHtml([user.last_client_app, user.last_client_version, user.last_client_version_code].filter(Boolean).join(" ")) || "—"}}</td>
+                <td>${{escapeHtml(user.last_client_platform || "")}}{{user.last_client_os_version ? " " + escapeHtml(user.last_client_os_version) : ""}}</td>
+                <td>${{escapeHtml(formatDate(user.last_client_seen_at))}}</td>
                 <td>${{user.lists_count}}</td>
                 <td>
                   <button class="compact secondary" data-user-action="${{user.is_active ? "disable" : "enable"}}" data-user-id="${{user.id}}">
@@ -240,8 +281,8 @@ def render_admin_page() -> str:
             opsPanel.innerHTML = `
               <h3>Пользователи</h3>
               <table>
-                <thead><tr><th>Email</th><th>Admin</th><th>Статус</th><th>Создан</th><th>Последний вход</th><th>Списков</th><th>Действия</th></tr></thead>
-                <tbody>${{rows || '<tr><td colspan="7">Пользователей нет.</td></tr>'}}</tbody>
+                <thead><tr><th>Email</th><th>Admin</th><th>Статус</th><th>Создан</th><th>Последний вход</th><th>Версия приложения</th><th>Платформа</th><th>Последний запуск</th><th>Списков</th><th>Действия</th></tr></thead>
+                <tbody>${{rows || '<tr><td colspan="10">Пользователей нет.</td></tr>'}}</tbody>
               </table>`;
           }}
 
@@ -633,7 +674,24 @@ def login(payload: AuthRequest, request: Request, db: Session = Depends(get_db))
 
 
 @router.get("/sync", response_model=SyncResponse)
-def sync(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def sync(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    x_client_app: str | None = Header(default=None),
+    x_client_version: str | None = Header(default=None),
+    x_client_version_code: str | None = Header(default=None),
+    x_client_platform: str | None = Header(default=None),
+    x_client_os_version: str | None = Header(default=None),
+):
+    update_user_client_info(
+        db,
+        current_user,
+        x_client_app,
+        x_client_version,
+        x_client_version_code,
+        x_client_platform,
+        x_client_os_version,
+    )
     lists = db.scalars(
         select(ShoppingList)
         .join(ListMember, ListMember.list_id == ShoppingList.id)
