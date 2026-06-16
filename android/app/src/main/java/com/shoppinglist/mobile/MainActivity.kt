@@ -90,6 +90,8 @@ import com.shoppinglist.mobile.ui.ShoppingViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val TEST_SERVER_URL = "https://rust.bghitech.ru"
+
 class MainActivity : ComponentActivity() {
     private val viewModel: ShoppingViewModel by viewModels()
 
@@ -173,6 +175,9 @@ private fun LoginScreen(
     onPassword: (String) -> Unit,
     onLogin: (Boolean) -> Unit
 ) {
+    var useTestServer by remember(state.serverUrl) { mutableStateOf(state.serverUrl == TEST_SERVER_URL) }
+    var manualServerUrl by remember { mutableStateOf(state.serverUrl.takeIf { it != TEST_SERVER_URL }.orEmpty()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -184,12 +189,36 @@ private fun LoginScreen(
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(
             state.serverUrl,
-            onServerUrl,
+            {
+                manualServerUrl = it
+                onServerUrl(it)
+            },
             label = { Text("Адрес сервера") },
             placeholder = { Text("https://shopping.example.com") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            enabled = !useTestServer
         )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    val checked = !useTestServer
+                    useTestServer = checked
+                    onServerUrl(if (checked) TEST_SERVER_URL else manualServerUrl)
+                }
+        ) {
+            Checkbox(
+                checked = useTestServer,
+                onCheckedChange = { checked ->
+                    useTestServer = checked
+                    onServerUrl(if (checked) TEST_SERVER_URL else manualServerUrl)
+                }
+            )
+            Text("Использовать тестовый сервер")
+        }
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(state.email, onEmail, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         Spacer(Modifier.height(8.dp))
@@ -1335,6 +1364,8 @@ private fun SettingsDialog(
     onLogout: () -> Unit
 ) {
     var nextServerUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
+    var useTestServer by remember(serverUrl) { mutableStateOf(serverUrl == TEST_SERVER_URL) }
+    var manualServerUrl by remember(serverUrl) { mutableStateOf(serverUrl.takeIf { it != TEST_SERVER_URL }.orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Настройки") },
@@ -1342,12 +1373,35 @@ private fun SettingsDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     nextServerUrl,
-                    { nextServerUrl = it },
+                    {
+                        nextServerUrl = it
+                        manualServerUrl = it
+                    },
                     label = { Text("Адрес сервера") },
                     placeholder = { Text("https://shopping.example.com") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    enabled = !useTestServer
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val checked = !useTestServer
+                            useTestServer = checked
+                            nextServerUrl = if (checked) TEST_SERVER_URL else manualServerUrl
+                        }
+                ) {
+                    Checkbox(
+                        checked = useTestServer,
+                        onCheckedChange = { checked ->
+                            useTestServer = checked
+                            nextServerUrl = if (checked) TEST_SERVER_URL else manualServerUrl
+                        }
+                    )
+                    Text("Использовать тестовый сервер")
+                }
                 Text("Тема", style = MaterialTheme.typography.titleSmall)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     item {
@@ -1380,7 +1434,7 @@ private fun SettingsDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSaveServerUrl(nextServerUrl) }) {
+            Button(onClick = { onSaveServerUrl(if (useTestServer) TEST_SERVER_URL else nextServerUrl) }) {
                 Text("Сохранить")
             }
         },
