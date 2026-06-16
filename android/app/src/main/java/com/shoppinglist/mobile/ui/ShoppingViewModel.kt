@@ -17,6 +17,7 @@ import com.shoppinglist.mobile.data.ShareRequest
 import com.shoppinglist.mobile.data.ShoppingItemDto
 import com.shoppinglist.mobile.data.ShoppingListDto
 import com.shoppinglist.mobile.data.local.AppPreferences
+import com.shoppinglist.mobile.data.local.effectiveServerUrl
 import com.shoppinglist.mobile.data.local.OfflineQueueStorage
 import com.shoppinglist.mobile.data.local.ProductCatalogStorage
 import com.shoppinglist.mobile.data.local.TEST_SERVER_URL
@@ -127,10 +128,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun setServerUrl(value: String) = update { copy(serverUrl = value, customServerUrl = value) }
-    fun setUseTestServer(value: Boolean) = update {
-        val nextServerUrl = if (value) TEST_SERVER_URL else customServerUrl
-        copy(useTestServer = value, serverUrl = nextServerUrl)
+    fun setServerUrl(value: String) {
+        appPreferences.customServerUrl = value
+        appPreferences.serverUrl = value
+        update { copy(serverUrl = value, customServerUrl = value) }
+    }
+
+    fun setUseTestServer(value: Boolean) {
+        val current = _state.value
+        val nextServerUrl = effectiveServerUrl(value, current.customServerUrl)
+        appPreferences.useTestServer = value
+        appPreferences.serverUrl = nextServerUrl
+        update { copy(useTestServer = value, serverUrl = nextServerUrl) }
     }
     fun setEmail(value: String) = update { copy(email = value) }
     fun setPassword(value: String) = update { copy(password = value) }
@@ -528,18 +537,6 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         update { copy(selectedListId = listId, selectedMembers = emptyList(), selectedActivity = emptyList(), inviteUrl = "") }
     }
 
-    fun saveServerUrl(serverUrl: String, useTestServer: Boolean, customServerUrl: String) {
-        val effectiveUrl = saveServerSettings(useTestServer, customServerUrl, serverUrl)
-        update {
-            copy(
-                serverUrl = effectiveUrl,
-                useTestServer = useTestServer,
-                customServerUrl = customServerUrl.trim(),
-                message = "Адрес сервера сохранен"
-            )
-        }
-    }
-
     fun saveThemeMode(themeMode: String) {
         val safeThemeMode = if (themeMode in listOf("system", "light", "dark")) themeMode else "system"
         appPreferences.themeMode = safeThemeMode
@@ -561,6 +558,32 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 pendingInviteToken = null,
                 selectedListId = null,
                 canUndoDelete = false,
+                message = null
+            )
+        }
+    }
+
+    fun logoutForServerChange() {
+        tokenStorage.clearToken()
+        undoDeleteJob?.cancel()
+        lastDeletedItem = null
+        pendingOperations = emptyList()
+        offlineQueueStorage.clear()
+        appPreferences.clearCachedSession()
+        update {
+            copy(
+                token = null,
+                password = "",
+                lists = emptyList(),
+                selectedMembers = emptyList(),
+                selectedActivity = emptyList(),
+                inviteUrl = "",
+                pendingInviteToken = null,
+                selectedListId = null,
+                pendingOperationCount = 0,
+                canUndoDelete = false,
+                isOffline = false,
+                lastSuccessfulSync = null,
                 message = null
             )
         }
