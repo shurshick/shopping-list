@@ -34,7 +34,7 @@ from ..services.migration_service import current_revision
 from ..setup import get_server_settings
 
 
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 
 router = APIRouter()
 
@@ -135,6 +135,10 @@ def render_admin_page() -> str:
           th, td {{ border-bottom: 1px solid #e1e7ef; padding: 10px 8px; text-align: left; vertical-align: top; }}
           th {{ color: #52616f; font-size: 13px; font-weight: 750; }}
           td {{ overflow-wrap: anywhere; }}
+          .table-wrap {{ overflow-x: auto; }}
+          .users-table {{ min-width: 1100px; }}
+          .row-actions {{ display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }}
+          .row-actions button {{ white-space: nowrap; }}
           pre {{ background: #101828; color: #eef2f6; border-radius: 8px; padding: 16px; overflow: auto; }}
           button.danger {{ background: #b42318; }}
           button.compact {{ min-height: 36px; padding: 0 12px; font-size: 14px; }}
@@ -272,18 +276,22 @@ def render_admin_page() -> str:
                 <td>${{escapeHtml(formatDate(user.last_client_seen_at))}}</td>
                 <td>${{user.lists_count}}</td>
                 <td>
+                  <div class="row-actions">
                   <button class="compact secondary" data-user-action="${{user.is_active ? "disable" : "enable"}}" data-user-id="${{user.id}}">
                     ${{user.is_active ? "Отключить" : "Включить"}}
                   </button>
                   <button class="compact secondary" data-user-action="set-password" data-user-id="${{user.id}}">Пароль</button>
+                  </div>
                 </td>
               </tr>`).join("");
             opsPanel.innerHTML = `
               <h3>Пользователи</h3>
-              <table>
+              <div class="table-wrap">
+              <table class="users-table">
                 <thead><tr><th>Email</th><th>Admin</th><th>Статус</th><th>Создан</th><th>Последний вход</th><th>Версия приложения</th><th>Платформа</th><th>Последний запуск</th><th>Списков</th><th>Действия</th></tr></thead>
                 <tbody>${{rows || '<tr><td colspan="10">Пользователей нет.</td></tr>'}}</tbody>
-              </table>`;
+              </table>
+              </div>`;
           }}
 
           function renderLists(data) {{
