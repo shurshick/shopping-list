@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Тег релиза, например v1.4.6
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -37,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.inputs.release_tag || github.ref_name }}"
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk "dist/shopping-list-android-${TAG}.apk"
           zip -r "dist/shopping-list-server-${TAG}.zip" \
@@ -54,11 +59,11 @@ jobs:
       - name: Опубликовать релиз
         uses: softprops/action-gh-release@v2
         with:
-          name: Список покупок ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
+          name: Список покупок ${{ github.event.inputs.release_tag || github.ref_name }}
+          body_path: docs/releases/${{ github.event.inputs.release_tag || github.ref_name }}.md
           prerelease: false
           make_latest: true
           files: |
-            dist/shopping-list-android-${{ github.ref_name }}.apk
-            dist/shopping-list-server-${{ github.ref_name }}.zip
-            dist/shopping-list-source-${{ github.ref_name }}.zip
+            dist/shopping-list-android-${{ github.event.inputs.release_tag || github.ref_name }}.apk
+            dist/shopping-list-server-${{ github.event.inputs.release_tag || github.ref_name }}.zip
+            dist/shopping-list-source-${{ github.event.inputs.release_tag || github.ref_name }}.zip
