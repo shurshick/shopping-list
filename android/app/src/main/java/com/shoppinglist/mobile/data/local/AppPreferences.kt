@@ -14,6 +14,18 @@ class AppPreferences(context: Context, private val gson: Gson) {
             preferences.edit().putString("serverUrl", value).apply()
         }
 
+    var useTestServer: Boolean
+        get() = preferences.getBoolean("useTestServer", false)
+        set(value) {
+            preferences.edit().putBoolean("useTestServer", value).apply()
+        }
+
+    var customServerUrl: String
+        get() = preferences.getString("customServerUrl", "") ?: ""
+        set(value) {
+            preferences.edit().putString("customServerUrl", value).apply()
+        }
+
     var themeMode: String
         get() = preferences.getString("themeMode", "system") ?: "system"
         set(value) {
