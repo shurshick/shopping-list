@@ -10,4 +10,8 @@ class OfflineQueueStorage(context: Context) {
     fun saveJson(value: String) {
         preferences.edit().putString("pendingOperations", value).apply()
     }
+
+    fun clear() {
+        preferences.edit().remove("pendingOperations").apply()
+    }
 }

@@ -83,7 +83,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.shoppinglist.mobile.BuildConfig
-import com.shoppinglist.mobile.data.local.TEST_SERVER_URL
 import com.shoppinglist.mobile.data.repository.UpdateRepository
 import com.shoppinglist.mobile.domain.model.AppUpdateInfo
 import com.shoppinglist.mobile.ui.ShoppingUiState
@@ -140,8 +139,8 @@ class MainActivity : ComponentActivity() {
                             viewModel::clearInviteUrl,
                             viewModel::addCatalogProduct,
                             viewModel::removeCatalogProduct,
-                            viewModel::saveServerUrl,
                             viewModel::saveThemeMode,
+                            viewModel::logoutForServerChange,
                             viewModel::logout
                         )
                     }
@@ -263,8 +262,8 @@ private fun ShoppingScreen(
     onClearInviteUrl: () -> Unit,
     onAddCatalogProduct: (String) -> Unit,
     onRemoveCatalogProduct: (String) -> Unit,
-    onSaveServerUrl: (String, Boolean, String) -> Unit,
     onSaveThemeMode: (String) -> Unit,
+    onChangeServer: () -> Unit,
     onLogout: () -> Unit
 ) {
     var itemName by remember { mutableStateOf("") }
@@ -663,14 +662,13 @@ private fun ShoppingScreen(
         SettingsDialog(
             serverUrl = state.serverUrl,
             useTestServer = state.useTestServer,
-            customServerUrl = state.customServerUrl,
             themeMode = state.themeMode,
             onDismiss = { settingsDialogOpen = false },
-            onSaveServerUrl = { serverUrl, useTestServer, customServerUrl ->
-                onSaveServerUrl(serverUrl, useTestServer, customServerUrl)
+            onSaveThemeMode = onSaveThemeMode,
+            onChangeServer = {
+                onChangeServer()
                 settingsDialogOpen = false
             },
-            onSaveThemeMode = onSaveThemeMode,
             onLogout = {
                 onLogout()
                 settingsDialogOpen = false
@@ -1355,51 +1353,32 @@ private fun InviteLinkDialog(inviteUrl: String, onDismiss: () -> Unit) {
 private fun SettingsDialog(
     serverUrl: String,
     useTestServer: Boolean,
-    customServerUrl: String,
     themeMode: String,
     onDismiss: () -> Unit,
-    onSaveServerUrl: (String, Boolean, String) -> Unit,
     onSaveThemeMode: (String) -> Unit,
+    onChangeServer: () -> Unit,
     onLogout: () -> Unit
 ) {
-    var nextServerUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
-    var nextUseTestServer by remember(useTestServer) { mutableStateOf(useTestServer) }
-    var nextCustomServerUrl by remember(customServerUrl) { mutableStateOf(customServerUrl) }
+    var confirmServerChange by remember { mutableStateOf(false) }
+    val serverMode = if (useTestServer) "Тестовый сервер" else "Пользовательский сервер"
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Настройки") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    nextServerUrl,
-                    {
-                        nextServerUrl = it
-                        nextCustomServerUrl = it
-                    },
-                    label = { Text("Адрес сервера") },
-                    placeholder = { Text("https://shopping.example.com") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    enabled = !nextUseTestServer
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val checked = !nextUseTestServer
-                            nextUseTestServer = checked
-                            nextServerUrl = if (checked) TEST_SERVER_URL else nextCustomServerUrl
-                        }
-                ) {
-                    Checkbox(
-                        checked = nextUseTestServer,
-                        onCheckedChange = { checked ->
-                            nextUseTestServer = checked
-                            nextServerUrl = if (checked) TEST_SERVER_URL else nextCustomServerUrl
-                        }
-                    )
-                    Text("Использовать тестовый сервер")
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(12.dp)
+                    ) {
+                        Text("Текущий сервер", style = MaterialTheme.typography.labelLarge)
+                        Text(serverUrl.ifBlank { "не задан" }, style = MaterialTheme.typography.bodyMedium)
+                        Text("Режим сервера", style = MaterialTheme.typography.labelLarge)
+                        Text(serverMode, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                OutlinedButton(onClick = { confirmServerChange = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Сменить сервер")
                 }
                 Text("Тема", style = MaterialTheme.typography.titleSmall)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1433,14 +1412,31 @@ private fun SettingsDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSaveServerUrl(nextServerUrl, nextUseTestServer, nextCustomServerUrl) }) {
-                Text("Сохранить")
+            Button(onClick = onDismiss) {
+                Text("Закрыть")
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Закрыть") }
         }
     )
+
+    if (confirmServerChange) {
+        AlertDialog(
+            onDismissRequest = { confirmServerChange = false },
+            title = { Text("Сменить сервер") },
+            text = {
+                Text("Смена сервера завершит текущую сессию. Аккаунт на текущем сервере не переносится автоматически. Продолжить?")
+            },
+            confirmButton = {
+                Button(onClick = onChangeServer) {
+                    Text("Выйти и сменить сервер")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmServerChange = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
 }
 
 @Composable

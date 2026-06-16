@@ -62,6 +62,14 @@ class AppPreferences(context: Context, private val gson: Gson) {
         preferences.edit().putString("cachedLists", gson.toJson(lists)).apply()
     }
 
+    fun clearCachedSession() {
+        preferences.edit()
+            .remove("cachedLists")
+            .remove("lastSuccessfulSync")
+            .remove("selectedListId")
+            .apply()
+    }
+
     fun nextTempId(): Int {
         val nextId = preferences.getInt("nextTempItemId", -1)
         preferences.edit().putInt("nextTempItemId", nextId - 1).apply()
