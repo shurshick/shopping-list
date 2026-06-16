@@ -83,14 +83,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.shoppinglist.mobile.BuildConfig
+import com.shoppinglist.mobile.data.local.TEST_SERVER_URL
 import com.shoppinglist.mobile.data.repository.UpdateRepository
 import com.shoppinglist.mobile.domain.model.AppUpdateInfo
 import com.shoppinglist.mobile.ui.ShoppingUiState
 import com.shoppinglist.mobile.ui.ShoppingViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private const val TEST_SERVER_URL = "https://rust.bghitech.ru"
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ShoppingViewModel by viewModels()
@@ -111,6 +110,7 @@ class MainActivity : ComponentActivity() {
                         LoginScreen(
                             state,
                             viewModel::setServerUrl,
+                            viewModel::setUseTestServer,
                             viewModel::setEmail,
                             viewModel::setPassword,
                             viewModel::login
@@ -171,13 +171,11 @@ class MainActivity : ComponentActivity() {
 private fun LoginScreen(
     state: ShoppingUiState,
     onServerUrl: (String) -> Unit,
+    onUseTestServer: (Boolean) -> Unit,
     onEmail: (String) -> Unit,
     onPassword: (String) -> Unit,
     onLogin: (Boolean) -> Unit
 ) {
-    var useTestServer by remember(state.serverUrl) { mutableStateOf(state.serverUrl == TEST_SERVER_URL) }
-    var manualServerUrl by remember { mutableStateOf(state.serverUrl.takeIf { it != TEST_SERVER_URL }.orEmpty()) }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -190,14 +188,13 @@ private fun LoginScreen(
         OutlinedTextField(
             state.serverUrl,
             {
-                manualServerUrl = it
                 onServerUrl(it)
             },
             label = { Text("Адрес сервера") },
             placeholder = { Text("https://shopping.example.com") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            enabled = !useTestServer
+            enabled = !state.useTestServer
         )
         Spacer(Modifier.height(8.dp))
         Row(
@@ -205,16 +202,14 @@ private fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable {
-                    val checked = !useTestServer
-                    useTestServer = checked
-                    onServerUrl(if (checked) TEST_SERVER_URL else manualServerUrl)
+                    val checked = !state.useTestServer
+                    onUseTestServer(checked)
                 }
         ) {
             Checkbox(
-                checked = useTestServer,
+                checked = state.useTestServer,
                 onCheckedChange = { checked ->
-                    useTestServer = checked
-                    onServerUrl(if (checked) TEST_SERVER_URL else manualServerUrl)
+                    onUseTestServer(checked)
                 }
             )
             Text("Использовать тестовый сервер")
@@ -268,7 +263,7 @@ private fun ShoppingScreen(
     onClearInviteUrl: () -> Unit,
     onAddCatalogProduct: (String) -> Unit,
     onRemoveCatalogProduct: (String) -> Unit,
-    onSaveServerUrl: (String) -> Unit,
+    onSaveServerUrl: (String, Boolean, String) -> Unit,
     onSaveThemeMode: (String) -> Unit,
     onLogout: () -> Unit
 ) {
@@ -667,10 +662,12 @@ private fun ShoppingScreen(
     if (settingsDialogOpen) {
         SettingsDialog(
             serverUrl = state.serverUrl,
+            useTestServer = state.useTestServer,
+            customServerUrl = state.customServerUrl,
             themeMode = state.themeMode,
             onDismiss = { settingsDialogOpen = false },
-            onSaveServerUrl = {
-                onSaveServerUrl(it)
+            onSaveServerUrl = { serverUrl, useTestServer, customServerUrl ->
+                onSaveServerUrl(serverUrl, useTestServer, customServerUrl)
                 settingsDialogOpen = false
             },
             onSaveThemeMode = onSaveThemeMode,
@@ -1357,15 +1354,17 @@ private fun InviteLinkDialog(inviteUrl: String, onDismiss: () -> Unit) {
 @Composable
 private fun SettingsDialog(
     serverUrl: String,
+    useTestServer: Boolean,
+    customServerUrl: String,
     themeMode: String,
     onDismiss: () -> Unit,
-    onSaveServerUrl: (String) -> Unit,
+    onSaveServerUrl: (String, Boolean, String) -> Unit,
     onSaveThemeMode: (String) -> Unit,
     onLogout: () -> Unit
 ) {
     var nextServerUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
-    var useTestServer by remember(serverUrl) { mutableStateOf(serverUrl == TEST_SERVER_URL) }
-    var manualServerUrl by remember(serverUrl) { mutableStateOf(serverUrl.takeIf { it != TEST_SERVER_URL }.orEmpty()) }
+    var nextUseTestServer by remember(useTestServer) { mutableStateOf(useTestServer) }
+    var nextCustomServerUrl by remember(customServerUrl) { mutableStateOf(customServerUrl) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Настройки") },
@@ -1375,29 +1374,29 @@ private fun SettingsDialog(
                     nextServerUrl,
                     {
                         nextServerUrl = it
-                        manualServerUrl = it
+                        nextCustomServerUrl = it
                     },
                     label = { Text("Адрес сервера") },
                     placeholder = { Text("https://shopping.example.com") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    enabled = !useTestServer
+                    enabled = !nextUseTestServer
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            val checked = !useTestServer
-                            useTestServer = checked
-                            nextServerUrl = if (checked) TEST_SERVER_URL else manualServerUrl
+                            val checked = !nextUseTestServer
+                            nextUseTestServer = checked
+                            nextServerUrl = if (checked) TEST_SERVER_URL else nextCustomServerUrl
                         }
                 ) {
                     Checkbox(
-                        checked = useTestServer,
+                        checked = nextUseTestServer,
                         onCheckedChange = { checked ->
-                            useTestServer = checked
-                            nextServerUrl = if (checked) TEST_SERVER_URL else manualServerUrl
+                            nextUseTestServer = checked
+                            nextServerUrl = if (checked) TEST_SERVER_URL else nextCustomServerUrl
                         }
                     )
                     Text("Использовать тестовый сервер")
@@ -1434,7 +1433,7 @@ private fun SettingsDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSaveServerUrl(if (useTestServer) TEST_SERVER_URL else nextServerUrl) }) {
+            Button(onClick = { onSaveServerUrl(nextServerUrl, nextUseTestServer, nextCustomServerUrl) }) {
                 Text("Сохранить")
             }
         },
