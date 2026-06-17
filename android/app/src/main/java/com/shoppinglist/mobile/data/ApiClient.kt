@@ -33,6 +33,7 @@ object ApiClient {
 
     private fun normalizeBaseUrl(baseUrl: String): String {
         val trimmed = baseUrl.trim()
+        require(trimmed.isNotBlank()) { "Укажите адрес сервера" }
         return if (trimmed.endsWith("/")) trimmed else "$trimmed/"
     }
 }
