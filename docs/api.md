@@ -1,6 +1,6 @@
 # API сервера
 
-Актуально для версии `v1.4.7`.
+Актуально для версии `v1.4.8`.
 
 Базовый адрес: `https://your-domain.example`
 
@@ -47,8 +47,8 @@ Authorization: Bearer <token>
 
 ```text
 X-Client-App: shopping-list-android
-X-Client-Version: 1.4.7
-X-Client-Version-Code: 30
+X-Client-Version: 1.4.8
+X-Client-Version-Code: 31
 X-Client-Platform: android
 X-Client-Os-Version: 14
 ```
@@ -118,12 +118,14 @@ X-Client-Operation-Id: <uuid>
 - `GET /health/ready` - API готов обслуживать запросы; проверяет БД и состояние миграций.
 - `GET /health/db` - безопасная проверка БД без раскрытия строки подключения.
 
+Android-экран диагностики использует `/health/live`, `/health/ready` и `/server-config`, чтобы показать доступность сервера, версию backend и публичную конфигурацию. Эти запросы не требуют токен и не раскрывают секреты.
+
 Пример:
 
 ```json
 {
   "status": "ok",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "timestamp": "2026-06-13T12:00:00"
 }
 ```

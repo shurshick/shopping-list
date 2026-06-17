@@ -1,8 +1,10 @@
 package com.shoppinglist.mobile.ui
 
 import android.app.Application
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.shoppinglist.mobile.BuildConfig
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.shoppinglist.mobile.data.ApiClient
@@ -21,6 +23,9 @@ import com.shoppinglist.mobile.data.local.OfflineQueueStorage
 import com.shoppinglist.mobile.data.local.ProductCatalogStorage
 import com.shoppinglist.mobile.data.local.ServerSettings
 import com.shoppinglist.mobile.data.local.TokenStorage
+import com.shoppinglist.mobile.data.repository.DiagnosticsRepository
+import com.shoppinglist.mobile.domain.model.DiagnosticsCheckResult
+import com.shoppinglist.mobile.domain.model.DiagnosticsInfo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +53,10 @@ data class ShoppingUiState(
     val canUndoDelete: Boolean = false,
     val isOffline: Boolean = false,
     val lastSuccessfulSync: String? = null,
+    val lastSyncAttemptAt: String? = null,
+    val lastSyncError: String? = null,
+    val diagnosticsCheckResult: DiagnosticsCheckResult? = null,
+    val isCheckingDiagnostics: Boolean = false,
     val message: String? = null,
     val isLoading: Boolean = false
 )
@@ -66,6 +75,10 @@ internal fun ShoppingUiState.clearedForServerChange(): ShoppingUiState {
         canUndoDelete = false,
         isOffline = false,
         lastSuccessfulSync = null,
+        lastSyncAttemptAt = null,
+        lastSyncError = null,
+        diagnosticsCheckResult = null,
+        isCheckingDiagnostics = false,
         message = null
     )
 }
@@ -92,6 +105,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private val appPreferences = AppPreferences(application, gson)
     private val offlineQueueStorage = OfflineQueueStorage(application)
     private val productCatalogStorage = ProductCatalogStorage(application)
+    private val diagnosticsRepository = DiagnosticsRepository()
     private val defaultProducts = listOf(
         "Хлеб",
         "Молоко",
@@ -131,7 +145,9 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             themeMode = appPreferences.themeMode,
             selectedListId = appPreferences.selectedListId,
             pendingOperationCount = pendingOperations.size,
-            lastSuccessfulSync = appPreferences.lastSuccessfulSync
+            lastSuccessfulSync = appPreferences.lastSuccessfulSync,
+            lastSyncAttemptAt = appPreferences.lastSyncAttemptAt,
+            lastSyncError = appPreferences.lastSyncError
         )
     )
     val state: StateFlow<ShoppingUiState> = _state.asStateFlow()
@@ -187,7 +203,14 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun sync() = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
-        runRequest {
+        markSyncAttempt()
+        runRequest(
+            onFailure = { error ->
+                val message = userFriendlyError(error)
+                appPreferences.lastSyncError = message
+                update { copy(lastSyncError = message) }
+            }
+        ) {
             val api = api()
             replayPendingOperations(api, token)
             val response = api.sync("Bearer $token")
@@ -196,15 +219,70 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             cacheLists(response.lists)
             val syncedAt = localTimestamp()
             appPreferences.lastSuccessfulSync = syncedAt
+            appPreferences.lastSyncError = null
             _state.value = _state.value.copy(
                 lists = response.lists,
                 selectedListId = nextSelected,
                 pendingOperationCount = pendingOperations.size,
                 isOffline = false,
                 lastSuccessfulSync = syncedAt,
+                lastSyncError = null,
                 message = null
             )
             saveSelectedListId(nextSelected)
+        }
+    }
+
+    fun retrySyncFromDiagnostics() {
+        if (_state.value.token == null) {
+            val message = "Требуется вход"
+            appPreferences.lastSyncError = message
+            update { copy(lastSyncError = message, message = message) }
+            return
+        }
+        sync()
+    }
+
+    fun checkDiagnostics() = viewModelScope.launch {
+        update { copy(isCheckingDiagnostics = true, message = null) }
+        val result = runCatching { diagnosticsRepository.check(_state.value.serverUrl) }
+            .getOrElse {
+                DiagnosticsCheckResult()
+            }
+        update { copy(diagnosticsCheckResult = result, isCheckingDiagnostics = false) }
+    }
+
+    fun currentDiagnosticsInfo(): DiagnosticsInfo {
+        val current = _state.value
+        return DiagnosticsInfo(
+            appVersion = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+            packageName = getApplication<Application>().packageName,
+            androidVersion = Build.VERSION.RELEASE.orEmpty(),
+            themeMode = current.themeMode,
+            serverUrl = current.serverUrl,
+            serverType = if (current.useTestServer) "test" else "custom",
+            lastSyncSuccessAt = current.lastSuccessfulSync,
+            lastSyncAttemptAt = current.lastSyncAttemptAt,
+            lastSyncError = current.lastSyncError,
+            pendingOperationsCount = pendingOperations.size,
+            syncStatus = current.syncStatusText(),
+            checkResult = current.diagnosticsCheckResult
+        )
+    }
+
+    fun clearLocalCacheFromDiagnostics() {
+        appPreferences.clearCachedSession()
+        update {
+            copy(
+                lists = emptyList(),
+                selectedListId = null,
+                lastSuccessfulSync = null,
+                lastSyncAttemptAt = null,
+                lastSyncError = null,
+                diagnosticsCheckResult = null,
+                message = "Локальный кэш очищен"
+            )
         }
     }
 
@@ -631,14 +709,38 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         return settings.effectiveServerUrl
     }
 
-    private suspend fun runRequest(block: suspend () -> Unit) {
+    private suspend fun runRequest(onFailure: ((Exception) -> Unit)? = null, block: suspend () -> Unit) {
         _state.value = _state.value.copy(isLoading = true, message = null)
         try {
             block()
         } catch (error: Exception) {
-            _state.value = _state.value.copy(message = error.message ?: "Ошибка", isOffline = true)
+            onFailure?.invoke(error)
+            _state.value = _state.value.copy(message = userFriendlyError(error), isOffline = true)
         } finally {
             _state.value = _state.value.copy(isLoading = false, pendingOperationCount = pendingOperations.size)
+        }
+    }
+
+    private fun markSyncAttempt() {
+        val attemptedAt = localTimestamp()
+        appPreferences.lastSyncAttemptAt = attemptedAt
+        update { copy(lastSyncAttemptAt = attemptedAt) }
+    }
+
+    private fun ShoppingUiState.syncStatusText(): String {
+        return when {
+            token == null -> "Требуется повторный вход"
+            pendingOperationCount > 0 -> "Ожидают отправки $pendingOperationCount действий"
+            isOffline -> "Сервер недоступен"
+            else -> "Синхронизировано"
+        }
+    }
+
+    private fun userFriendlyError(error: Throwable): String {
+        return when {
+            error.message == "Укажите адрес сервера" -> "Укажите адрес сервера"
+            error.message?.contains("Expected URL scheme", ignoreCase = true) == true -> "Проверьте адрес сервера"
+            else -> error.message ?: "Ошибка"
         }
     }
 

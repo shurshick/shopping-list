@@ -215,7 +215,7 @@ def test_metrics_contains_counts_and_no_email(client):
     response = client.get("/metrics")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.4.7"
+    assert response.json()["version"] == "1.4.8"
     assert "users_total" in response.json()
     assert "metrics@example.com" not in response.text
 

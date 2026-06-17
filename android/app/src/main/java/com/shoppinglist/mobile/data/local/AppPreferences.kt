@@ -55,6 +55,18 @@ class AppPreferences(context: Context, private val gson: Gson) {
             preferences.edit().putString("lastSuccessfulSync", value).apply()
         }
 
+    var lastSyncAttemptAt: String?
+        get() = preferences.getString("lastSyncAttemptAt", null)
+        set(value) {
+            preferences.edit().putString("lastSyncAttemptAt", value).apply()
+        }
+
+    var lastSyncError: String?
+        get() = preferences.getString("lastSyncError", null)
+        set(value) {
+            preferences.edit().putString("lastSyncError", value).apply()
+        }
+
     var selectedListId: Int?
         get() = preferences.getInt("selectedListId", 0).takeIf { it > 0 }
         set(value) {
@@ -83,6 +95,8 @@ class AppPreferences(context: Context, private val gson: Gson) {
         preferences.edit()
             .remove("cachedLists")
             .remove("lastSuccessfulSync")
+            .remove("lastSyncAttemptAt")
+            .remove("lastSyncError")
             .remove("selectedListId")
             .apply()
     }

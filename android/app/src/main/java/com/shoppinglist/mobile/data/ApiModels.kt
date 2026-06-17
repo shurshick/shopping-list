@@ -2,6 +2,20 @@ package com.shoppinglist.mobile.data
 
 data class AuthRequest(val email: String, val password: String)
 data class TokenResponse(val access_token: String, val token_type: String)
+data class HealthStatusDto(
+    val status: String = "",
+    val version: String? = null,
+    val timestamp: String? = null,
+    val database: String? = null,
+    val migration: String? = null
+)
+
+data class ServerConfigDto(
+    val app_name: String = "",
+    val external_url: String = "",
+    val allow_registration: Boolean = false,
+    val setup_completed: Boolean = false
+)
 
 data class ListCreate(
     val name: String,

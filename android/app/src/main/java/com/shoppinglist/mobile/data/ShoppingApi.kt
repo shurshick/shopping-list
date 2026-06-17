@@ -15,6 +15,15 @@ interface ShoppingApi {
     @POST("auth/login")
     suspend fun login(@Body request: AuthRequest): TokenResponse
 
+    @GET("health/live")
+    suspend fun healthLive(): HealthStatusDto
+
+    @GET("health/ready")
+    suspend fun healthReady(): HealthStatusDto
+
+    @GET("server-config")
+    suspend fun serverConfig(): ServerConfigDto
+
     @GET("sync")
     suspend fun sync(@Header("Authorization") authorization: String): SyncResponse
 

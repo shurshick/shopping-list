@@ -6,6 +6,7 @@
 
 ## Где смотреть
 
+- `docs/releases/v1.4.8.md`
 - `docs/releases/v1.4.7.md`
 - `docs/releases/v1.4.6.md`
 - `docs/releases/v1.4.5.md`

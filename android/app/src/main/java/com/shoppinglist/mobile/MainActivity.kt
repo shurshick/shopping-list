@@ -6,12 +6,14 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -85,6 +87,8 @@ import androidx.compose.ui.unit.dp
 import com.shoppinglist.mobile.BuildConfig
 import com.shoppinglist.mobile.data.repository.UpdateRepository
 import com.shoppinglist.mobile.domain.model.AppUpdateInfo
+import com.shoppinglist.mobile.domain.model.DiagnosticsEndpointStatus
+import com.shoppinglist.mobile.domain.model.DiagnosticsInfo
 import com.shoppinglist.mobile.ui.ShoppingUiState
 import com.shoppinglist.mobile.ui.ShoppingViewModel
 import kotlinx.coroutines.delay
@@ -141,7 +145,11 @@ class MainActivity : ComponentActivity() {
                             viewModel::removeCatalogProduct,
                             viewModel::saveThemeMode,
                             viewModel::logoutForServerChange,
-                            viewModel::logout
+                            viewModel::logout,
+                            viewModel::checkDiagnostics,
+                            viewModel::retrySyncFromDiagnostics,
+                            viewModel::currentDiagnosticsInfo,
+                            viewModel::clearLocalCacheFromDiagnostics
                         )
                     }
                 }
@@ -264,7 +272,11 @@ private fun ShoppingScreen(
     onRemoveCatalogProduct: (String) -> Unit,
     onSaveThemeMode: (String) -> Unit,
     onChangeServer: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onCheckDiagnostics: () -> Unit,
+    onRetrySync: () -> Unit,
+    onDiagnosticsInfo: () -> DiagnosticsInfo,
+    onClearLocalCache: () -> Unit
 ) {
     var itemName by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
@@ -283,6 +295,7 @@ private fun ShoppingScreen(
     var inviteDialogOpen by remember { mutableStateOf(false) }
     var catalogDialogOpen by remember { mutableStateOf(false) }
     var settingsDialogOpen by remember { mutableStateOf(false) }
+    var diagnosticsDialogOpen by remember { mutableStateOf(false) }
     var aboutDialogOpen by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<com.shoppinglist.mobile.data.ShoppingItemDto?>(null) }
     val context = LocalContext.current
@@ -665,6 +678,10 @@ private fun ShoppingScreen(
             themeMode = state.themeMode,
             onDismiss = { settingsDialogOpen = false },
             onSaveThemeMode = onSaveThemeMode,
+            onOpenDiagnostics = {
+                settingsDialogOpen = false
+                diagnosticsDialogOpen = true
+            },
             onChangeServer = {
                 onChangeServer()
                 settingsDialogOpen = false
@@ -673,6 +690,17 @@ private fun ShoppingScreen(
                 onLogout()
                 settingsDialogOpen = false
             }
+        )
+    }
+
+    if (diagnosticsDialogOpen) {
+        DiagnosticsDialog(
+            state = state,
+            diagnosticsInfo = onDiagnosticsInfo(),
+            onDismiss = { diagnosticsDialogOpen = false },
+            onCheck = onCheckDiagnostics,
+            onRetrySync = onRetrySync,
+            onClearLocalCache = onClearLocalCache
         )
     }
 
@@ -1356,6 +1384,7 @@ private fun SettingsDialog(
     themeMode: String,
     onDismiss: () -> Unit,
     onSaveThemeMode: (String) -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onChangeServer: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -1379,6 +1408,10 @@ private fun SettingsDialog(
                 }
                 OutlinedButton(onClick = { confirmServerChange = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("Сменить сервер")
+                }
+                OutlinedButton(onClick = onOpenDiagnostics, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Info, contentDescription = null)
+                    Text("Диагностика", modifier = Modifier.padding(start = 8.dp))
                 }
                 Text("Тема", style = MaterialTheme.typography.titleSmall)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1437,6 +1470,161 @@ private fun SettingsDialog(
             }
         )
     }
+}
+
+@Composable
+private fun DiagnosticsDialog(
+    state: ShoppingUiState,
+    diagnosticsInfo: DiagnosticsInfo,
+    onDismiss: () -> Unit,
+    onCheck: () -> Unit,
+    onRetrySync: () -> Unit,
+    onClearLocalCache: () -> Unit
+) {
+    val context = LocalContext.current
+    var confirmClearCache by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Диагностика") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.height(520.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    DiagnosticsSection("Сервер") {
+                        DiagnosticsLine("Адрес", diagnosticsInfo.serverUrl.ifBlank { "не задан" })
+                        DiagnosticsLine(
+                            "Тип",
+                            if (state.useTestServer) "тестовый" else "пользовательский"
+                        )
+                    }
+                }
+                item {
+                    DiagnosticsSection("Состояние") {
+                        val check = diagnosticsInfo.checkResult
+                        DiagnosticsEndpointLine(check?.live ?: DiagnosticsEndpointStatus("health/live", "не проверено"))
+                        DiagnosticsEndpointLine(check?.ready ?: DiagnosticsEndpointStatus("health/ready", "не проверено"))
+                        DiagnosticsEndpointLine(check?.serverConfig ?: DiagnosticsEndpointStatus("server-config", "не проверено"))
+                        DiagnosticsLine("Версия backend", check?.backendVersion ?: "нет данных")
+                        check?.serverAppName?.takeIf { it.isNotBlank() }?.let {
+                            DiagnosticsLine("Название сервера", it)
+                        }
+                        check?.setupCompleted?.let {
+                            DiagnosticsLine("Первичная настройка", if (it) "завершена" else "не завершена")
+                        }
+                        check?.allowRegistration?.let {
+                            DiagnosticsLine("Регистрация", if (it) "разрешена" else "отключена")
+                        }
+                    }
+                }
+                item {
+                    DiagnosticsSection("Синхронизация") {
+                        DiagnosticsLine("Состояние", diagnosticsInfo.syncStatus)
+                        DiagnosticsLine("Последняя успешная", diagnosticsInfo.lastSyncSuccessAt ?: "нет данных")
+                        DiagnosticsLine("Последняя попытка", diagnosticsInfo.lastSyncAttemptAt ?: "нет данных")
+                        DiagnosticsLine("Ожидают отправки", diagnosticsInfo.pendingOperationsCount.toString())
+                        DiagnosticsLine("Последняя ошибка", diagnosticsInfo.lastSyncError ?: "нет")
+                    }
+                }
+                item {
+                    DiagnosticsSection("Приложение") {
+                        DiagnosticsLine("Версия", diagnosticsInfo.appVersion)
+                        DiagnosticsLine("Код версии", diagnosticsInfo.versionCode.toString())
+                        DiagnosticsLine("Пакет", diagnosticsInfo.packageName)
+                        DiagnosticsLine("Android", diagnosticsInfo.androidVersion.ifBlank { "нет данных" })
+                        DiagnosticsLine("Тема", diagnosticsInfo.themeMode)
+                    }
+                }
+                item {
+                    DiagnosticsSection("Действия") {
+                        Button(
+                            onClick = onCheck,
+                            enabled = !state.isCheckingDiagnostics,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (state.isCheckingDiagnostics) "Проверка..." else "Проверить подключение")
+                        }
+                        OutlinedButton(onClick = onRetrySync, modifier = Modifier.fillMaxWidth()) {
+                            Text("Повторить синхронизацию")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    ClipData.newPlainText("Диагностика списка покупок", diagnosticsInfo.toSafeReport())
+                                )
+                                Toast.makeText(context, "Диагностика скопирована", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Скопировать диагностику")
+                        }
+                        OutlinedButton(onClick = { confirmClearCache = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Очистить локальный кэш")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Закрыть")
+            }
+        }
+    )
+
+    if (confirmClearCache) {
+        AlertDialog(
+            onDismissRequest = { confirmClearCache = false },
+            title = { Text("Очистить локальный кэш?") },
+            text = {
+                Text("Будут очищены сохранённые на телефоне списки и данные последней синхронизации. Очередь несинхронизированных действий не удаляется.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onClearLocalCache()
+                        confirmClearCache = false
+                    }
+                ) {
+                    Text("Очистить")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearCache = false }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun DiagnosticsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsLine(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun DiagnosticsEndpointLine(status: DiagnosticsEndpointStatus) {
+    val suffix = status.details.takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()
+    DiagnosticsLine(status.name, "${status.status}$suffix")
 }
 
 @Composable
