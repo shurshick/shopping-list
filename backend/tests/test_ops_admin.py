@@ -348,3 +348,11 @@ def test_admin_page_links_new_ops_sections(client):
     assert 'data-admin-view="system"' in response.text
     assert 'data-admin-view="logs"' in response.text
     assert 'data-admin-view="diagnostics"' in response.text
+
+
+def test_admin_page_does_not_break_script_with_embedded_script_tags(client):
+    response = client.get("/admin")
+
+    assert response.status_code == 200
+    assert '<script type="application/json"' not in response.text
+    assert response.text.count("</script>") == 1

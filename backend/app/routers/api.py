@@ -493,7 +493,7 @@ def render_admin_page() -> str:
                 <tbody>${{rows || '<tr><td colspan="4">Событий нет.</td></tr>'}}</tbody>
               </table>
               </div>
-              <script type="application/json" id="logs-report">${{escapeHtml(safeReport("Shopping List Admin Logs", data))}}</script>`;
+              <textarea class="hidden" id="logs-report" readonly>${{escapeHtml(safeReport("Shopping List Admin Logs", data))}}</textarea>`;
           }}
 
           function renderDiagnostics(data) {{
@@ -515,7 +515,7 @@ def render_admin_page() -> str:
               </div>
               <h4>Последние события</h4>
               <pre>${{escapeHtml(JSON.stringify(data.last_events || [], null, 2))}}</pre>
-              <script type="application/json" id="diagnostics-report">${{escapeHtml(safeReport("Shopping List Admin Diagnostics", data))}}</script>`;
+              <textarea class="hidden" id="diagnostics-report" readonly>${{escapeHtml(safeReport("Shopping List Admin Diagnostics", data))}}</textarea>`;
           }}
 
           async function loadAdminView(view, filters = {{}}) {{
