@@ -17,10 +17,9 @@ import com.shoppinglist.mobile.data.ShareRequest
 import com.shoppinglist.mobile.data.ShoppingItemDto
 import com.shoppinglist.mobile.data.ShoppingListDto
 import com.shoppinglist.mobile.data.local.AppPreferences
-import com.shoppinglist.mobile.data.local.effectiveServerUrl
 import com.shoppinglist.mobile.data.local.OfflineQueueStorage
 import com.shoppinglist.mobile.data.local.ProductCatalogStorage
-import com.shoppinglist.mobile.data.local.TEST_SERVER_URL
+import com.shoppinglist.mobile.data.local.ServerSettings
 import com.shoppinglist.mobile.data.local.TokenStorage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -52,6 +51,24 @@ data class ShoppingUiState(
     val message: String? = null,
     val isLoading: Boolean = false
 )
+
+internal fun ShoppingUiState.clearedForServerChange(): ShoppingUiState {
+    return copy(
+        token = null,
+        password = "",
+        lists = emptyList(),
+        selectedMembers = emptyList(),
+        selectedActivity = emptyList(),
+        inviteUrl = "",
+        pendingInviteToken = null,
+        selectedListId = null,
+        pendingOperationCount = 0,
+        canUndoDelete = false,
+        isOffline = false,
+        lastSuccessfulSync = null,
+        message = null
+    )
+}
 
 private data class PendingOperation(
     val type: String,
@@ -102,16 +119,13 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private var lastDeletedItem: DeletedItemSnapshot? = null
     private var undoDeleteJob: Job? = null
     private val initialToken = tokenStorage.loadToken()
-    private val initialUseTestServer = appPreferences.useTestServer
-    private val initialCustomServerUrl = appPreferences.customServerUrl.ifBlank {
-        appPreferences.serverUrl.takeIf { it.isNotBlank() && it != TEST_SERVER_URL }.orEmpty()
-    }
+    private val initialServerSettings = appPreferences.loadServerSettings()
     private val _state = MutableStateFlow(
         ShoppingUiState(
             token = initialToken,
-            serverUrl = if (initialUseTestServer) TEST_SERVER_URL else appPreferences.serverUrl,
-            useTestServer = initialUseTestServer,
-            customServerUrl = initialCustomServerUrl,
+            serverUrl = initialServerSettings.effectiveServerUrl,
+            useTestServer = initialServerSettings.useTestServer,
+            customServerUrl = initialServerSettings.customServerUrl,
             lists = appPreferences.loadCachedLists(),
             productCatalog = productCatalogStorage.load(defaultProducts),
             themeMode = appPreferences.themeMode,
@@ -129,17 +143,27 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setServerUrl(value: String) {
-        appPreferences.customServerUrl = value
-        appPreferences.serverUrl = value
-        update { copy(serverUrl = value, customServerUrl = value) }
+        val updatedSettings = ServerSettings(
+            useTestServer = _state.value.useTestServer,
+            customServerUrl = value
+        )
+        appPreferences.saveServerSettings(updatedSettings)
+        update {
+            copy(
+                serverUrl = updatedSettings.effectiveServerUrl,
+                customServerUrl = updatedSettings.customServerUrl
+            )
+        }
     }
 
     fun setUseTestServer(value: Boolean) {
         val current = _state.value
-        val nextServerUrl = effectiveServerUrl(value, current.customServerUrl)
-        appPreferences.useTestServer = value
-        appPreferences.serverUrl = nextServerUrl
-        update { copy(useTestServer = value, serverUrl = nextServerUrl) }
+        val updatedSettings = ServerSettings(
+            useTestServer = value,
+            customServerUrl = current.customServerUrl
+        )
+        appPreferences.saveServerSettings(updatedSettings)
+        update { copy(useTestServer = value, serverUrl = updatedSettings.effectiveServerUrl) }
     }
     fun setEmail(value: String) = update { copy(email = value) }
     fun setPassword(value: String) = update { copy(password = value) }
@@ -570,23 +594,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         pendingOperations = emptyList()
         offlineQueueStorage.clear()
         appPreferences.clearCachedSession()
-        update {
-            copy(
-                token = null,
-                password = "",
-                lists = emptyList(),
-                selectedMembers = emptyList(),
-                selectedActivity = emptyList(),
-                inviteUrl = "",
-                pendingInviteToken = null,
-                selectedListId = null,
-                pendingOperationCount = 0,
-                canUndoDelete = false,
-                isOffline = false,
-                lastSuccessfulSync = null,
-                message = null
-            )
-        }
+        update { clearedForServerChange() }
     }
 
     private suspend fun runOnlineThenSync(
@@ -615,12 +623,12 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun saveServerSettings(useTestServer: Boolean, customServerUrl: String, serverUrl: String): String {
-        val trimmedCustomUrl = customServerUrl.trim()
-        val effectiveUrl = if (useTestServer) TEST_SERVER_URL else serverUrl.trim()
-        appPreferences.useTestServer = useTestServer
-        appPreferences.customServerUrl = trimmedCustomUrl
-        appPreferences.serverUrl = effectiveUrl
-        return effectiveUrl
+        val settings = ServerSettings(
+            useTestServer = useTestServer,
+            customServerUrl = if (useTestServer) customServerUrl else serverUrl
+        )
+        appPreferences.saveServerSettings(settings)
+        return settings.effectiveServerUrl
     }
 
     private suspend fun runRequest(block: suspend () -> Unit) {

@@ -26,6 +26,23 @@ class AppPreferences(context: Context, private val gson: Gson) {
             preferences.edit().putString("customServerUrl", value).apply()
         }
 
+    fun loadServerSettings(): ServerSettings {
+        val savedCustomUrl = customServerUrl.ifBlank {
+            serverUrl.takeIf { it.isNotBlank() && it != TEST_SERVER_URL }.orEmpty()
+        }
+        return ServerSettings(
+            useTestServer = useTestServer,
+            customServerUrl = savedCustomUrl
+        )
+    }
+
+    fun saveServerSettings(settings: ServerSettings) {
+        val normalized = settings.copy(customServerUrl = settings.customServerUrl.trim())
+        useTestServer = normalized.useTestServer
+        customServerUrl = normalized.customServerUrl
+        serverUrl = normalized.effectiveServerUrl
+    }
+
     var themeMode: String
         get() = preferences.getString("themeMode", "system") ?: "system"
         set(value) {
