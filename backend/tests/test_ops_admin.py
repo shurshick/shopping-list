@@ -26,6 +26,27 @@ def test_admin_can_open_admin_users(client):
     assert "password_hash" not in response.text
 
 
+def test_admin_users_support_search_filters_and_sort(client):
+    admin_token = setup_admin(client)
+    register_user(client, "active-filter@example.com")
+    register_user(client, "disabled-filter@example.com")
+    users = client.get("/admin/users", headers=auth(admin_token)).json()["users"]
+    disabled_id = next(user["id"] for user in users if user["email"] == "disabled-filter@example.com")
+    client.post(f"/admin/users/{disabled_id}/disable", headers=auth(admin_token))
+
+    active = client.get(
+        "/admin/users?status=active&query=active-filter&sort=email",
+        headers=auth(admin_token),
+    )
+    disabled = client.get("/admin/users?status=disabled", headers=auth(admin_token))
+    admins = client.get("/admin/users?status=admins", headers=auth(admin_token))
+
+    assert active.status_code == 200
+    assert [user["email"] for user in active.json()["users"]] == ["active-filter@example.com"]
+    assert any(user["email"] == "disabled-filter@example.com" for user in disabled.json()["users"])
+    assert all(user["is_admin"] for user in admins.json()["users"])
+
+
 def test_sync_records_client_version_for_admin_users(client):
     admin_token = setup_admin(client)
 
@@ -106,6 +127,20 @@ def test_admin_can_set_user_password(client):
     assert login_response.status_code == 200
 
 
+def test_admin_set_password_requires_body_not_query_string(client):
+    admin_token = setup_admin(client)
+    register_user(client, "query-password@example.com", "oldpass123")
+    users = client.get("/admin/users", headers=auth(admin_token)).json()["users"]
+    user_id = next(user["id"] for user in users if user["email"] == "query-password@example.com")
+
+    response = client.post(
+        f"/admin/users/{user_id}/set-password?password=querypass123",
+        headers=auth(admin_token),
+    )
+
+    assert response.status_code == 422
+
+
 def test_admin_can_open_admin_lists(client):
     admin_token = setup_admin(client)
     client.post("/lists", json={"name": "ops list"}, headers=auth(admin_token))
@@ -114,6 +149,19 @@ def test_admin_can_open_admin_lists(client):
 
     assert response.status_code == 200
     assert any(item["name"] == "ops list" for item in response.json()["lists"])
+
+
+def test_admin_lists_support_search_and_archive_filter(client):
+    admin_token = setup_admin(client)
+    active_id = client.post("/lists", json={"name": "active admin list"}, headers=auth(admin_token)).json()["id"]
+    archived_id = client.post("/lists", json={"name": "archived admin list"}, headers=auth(admin_token)).json()["id"]
+    client.post(f"/admin/lists/{archived_id}/archive", headers=auth(admin_token))
+
+    active = client.get("/admin/lists?status=active&query=active admin", headers=auth(admin_token))
+    archived = client.get("/admin/lists?status=archived&query=archived admin", headers=auth(admin_token))
+
+    assert [item["id"] for item in active.json()["lists"]] == [active_id]
+    assert [item["id"] for item in archived.json()["lists"]] == [archived_id]
 
 
 def test_non_admin_cannot_open_admin_lists(client):
@@ -174,6 +222,20 @@ def test_admin_can_revoke_invite_and_revoked_invite_cannot_be_accepted(client):
     assert accept.status_code == 404
 
 
+def test_admin_invites_support_active_and_revoked_filters(client):
+    admin_token = setup_admin(client)
+    list_id = client.post("/lists", json={"name": "filter invites"}, headers=auth(admin_token)).json()["id"]
+    client.post(f"/lists/{list_id}/invite", headers=auth(admin_token))
+    invite_id = client.get("/admin/invites?status=active&query=filter", headers=auth(admin_token)).json()["invites"][0]["id"]
+
+    client.post(f"/admin/invites/{invite_id}/revoke", headers=auth(admin_token))
+    active = client.get("/admin/invites?status=active&query=filter", headers=auth(admin_token))
+    revoked = client.get("/admin/invites?status=revoked&query=filter", headers=auth(admin_token))
+
+    assert active.json()["invites"] == []
+    assert revoked.json()["invites"][0]["id"] == invite_id
+
+
 def test_admin_invites_do_not_expose_raw_token(client):
     admin_token = setup_admin(client)
     list_id = client.post("/lists", json={"name": "masked"}, headers=auth(admin_token)).json()["id"]
@@ -184,6 +246,17 @@ def test_admin_invites_do_not_expose_raw_token(client):
     assert response.status_code == 200
     assert invite["token"] not in response.text
     assert response.json()["invites"][0]["token_preview"].startswith("...")
+
+
+def test_admin_logs_filter_and_do_not_expose_sensitive_headers(client):
+    admin_token = setup_admin(client)
+
+    response = client.get("/admin/logs?level=info&event_type=start", headers=auth(admin_token))
+
+    assert response.status_code == 200
+    assert "authorization" not in response.text.lower()
+    assert "password" not in response.text.lower()
+    assert "jwt_secret" not in response.text.lower()
 
 
 def test_health_live_returns_200(client):
@@ -215,7 +288,7 @@ def test_metrics_contains_counts_and_no_email(client):
     response = client.get("/metrics")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.4.8"
+    assert response.json()["version"] == "1.4.9"
     assert "users_total" in response.json()
     assert "metrics@example.com" not in response.text
 
@@ -250,10 +323,25 @@ def test_admin_system_shows_migration_status(client):
     assert "jwt_secret" not in response.text.lower()
 
 
+def test_admin_diagnostics_does_not_expose_secrets(client):
+    admin_token = setup_admin(client)
+
+    response = client.get("/admin/diagnostics", headers=auth(admin_token))
+
+    assert response.status_code == 200
+    lowered = response.text.lower()
+    assert "jwt_secret" not in lowered
+    assert "postgres_password" not in lowered
+    assert "password_hash" not in lowered
+
+
 def test_admin_page_links_new_ops_sections(client):
     response = client.get("/admin")
 
     assert response.status_code == 200
+    assert 'data-admin-view="home"' in response.text
+    assert 'class="toolbar admin-nav"' in response.text
+    assert "Поиск по email" in response.text
     assert 'data-admin-view="users"' in response.text
     assert 'data-admin-view="lists"' in response.text
     assert 'data-admin-view="invites"' in response.text

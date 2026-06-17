@@ -34,7 +34,7 @@ from ..services.migration_service import current_revision
 from ..setup import get_server_settings
 
 
-APP_VERSION = "1.4.8"
+APP_VERSION = "1.4.9"
 
 router = APIRouter()
 
@@ -91,7 +91,7 @@ def render_admin_page() -> str:
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           }}
           body {{ margin: 0; background: #f6f7f9; color: #1f2933; }}
-          main {{ max-width: 960px; margin: 0 auto; padding: 32px 18px; }}
+          main {{ max-width: 1180px; margin: 0 auto; padding: 24px 16px; }}
           section {{
             background: #ffffff;
             border: 1px solid #dde3ea;
@@ -124,21 +124,39 @@ def render_admin_page() -> str:
             cursor: pointer;
           }}
           button.secondary {{ background: #e8eef5; color: #1f2933; }}
+          button.secondary.active {{ background: #1f2933; color: #ffffff; }}
           .actions {{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }}
-          .toolbar {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }}
+          .toolbar {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }}
+          .admin-nav {{ position: sticky; top: 0; z-index: 2; background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 10px; margin-bottom: 18px; }}
+          .filters {{ display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) minmax(160px, 220px) auto; gap: 10px; align-items: end; margin: 12px 0 14px; }}
+          .filters label {{ margin: 0 0 4px; font-size: 13px; color: #52616f; }}
+          select {{
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 44px;
+            border: 1px solid #b8c4d0;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font: inherit;
+            background: #ffffff;
+          }}
           .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }}
           .card {{ border: 1px solid #e1e7ef; border-radius: 8px; padding: 16px; background: #fbfcfe; }}
           .label {{ color: #65758b; font-size: 13px; margin-bottom: 6px; }}
           .value {{ font-size: 24px; font-weight: 750; overflow-wrap: anywhere; }}
           .small .value {{ font-size: 16px; font-weight: 650; }}
           table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
+          .admin-table {{ width: 100%; min-width: 980px; border-collapse: collapse; margin-top: 12px; }}
           th, td {{ border-bottom: 1px solid #e1e7ef; padding: 10px 8px; text-align: left; vertical-align: top; }}
           th {{ color: #52616f; font-size: 13px; font-weight: 750; }}
           td {{ overflow-wrap: anywhere; }}
           .table-wrap {{ overflow-x: auto; }}
-          .users-table {{ min-width: 1100px; }}
-          .row-actions {{ display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }}
-          .row-actions button {{ white-space: nowrap; }}
+          .admin-actions {{ display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }}
+          .admin-actions button {{ white-space: nowrap; }}
+          .badge {{ display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; background: #eef2f6; color: #344054; font-weight: 700; font-size: 13px; }}
+          .badge.ok {{ background: #e7f5ec; color: #14532d; }}
+          .badge.warn {{ background: #fff4d6; color: #7a4b00; }}
+          .badge.error {{ background: #fdecec; color: #8a1f17; }}
           pre {{ background: #101828; color: #eef2f6; border-radius: 8px; padding: 16px; overflow: auto; }}
           button.danger {{ background: #b42318; }}
           button.compact {{ min-height: 36px; padding: 0 12px; font-size: 14px; }}
@@ -154,6 +172,14 @@ def render_admin_page() -> str:
           .message.ok {{ background: #e7f5ec; color: #14532d; }}
           .hidden {{ display: none; }}
           code {{ background: #eef2f6; padding: 2px 5px; border-radius: 4px; }}
+          @media (max-width: 720px) {{
+            main {{ padding: 12px; }}
+            section {{ padding: 16px; }}
+            h1 {{ font-size: 24px; }}
+            .filters {{ grid-template-columns: 1fr; }}
+            .admin-nav button, .toolbar button {{ flex: 1 1 140px; }}
+            .admin-actions {{ flex-wrap: wrap; }}
+          }}
         </style>
       </head>
       <body>
@@ -187,7 +213,8 @@ def render_admin_page() -> str:
 
           <section id="ops-section" class="hidden">
             <h2>Администрирование</h2>
-            <div class="toolbar">
+            <div class="toolbar admin-nav" aria-label="Разделы администрирования">
+              <button type="button" class="secondary active" data-admin-view="home">Главная</button>
               <button type="button" class="secondary" data-admin-view="users">Пользователи</button>
               <button type="button" class="secondary" data-admin-view="lists">Списки</button>
               <button type="button" class="secondary" data-admin-view="invites">Приглашения</button>
@@ -263,12 +290,41 @@ def render_admin_page() -> str:
             opsPanel.innerHTML = `<h3>${{escapeHtml(title)}}</h3><pre>${{escapeHtml(JSON.stringify(data, null, 2))}}</pre>`;
           }}
 
-          function renderUsers(data) {{
+          function buildQuery(params) {{
+            const query = new URLSearchParams();
+            Object.entries(params).forEach(([key, value]) => {{
+              if (value) query.set(key, value);
+            }});
+            const text = query.toString();
+            return text ? `?${{text}}` : "";
+          }}
+
+          function setActiveView(view) {{
+            document.querySelectorAll("[data-admin-view]").forEach((button) => {{
+              button.classList.toggle("active", button.dataset.adminView === view);
+            }});
+          }}
+
+          function renderHome() {{
+            opsPanel.innerHTML = `
+              <h3>Главная</h3>
+              <p>Выберите раздел в навигации выше. Все действия выполняются от имени администратора, без передачи паролей в URL.</p>
+              <div class="grid">
+                ${{card("Пользователи", "учётные записи", true)}}
+                ${{card("Списки", "архивирование и детали", true)}}
+                ${{card("Приглашения", "просмотр и отзыв", true)}}
+                ${{card("Система", "миграции и uptime", true)}}
+                ${{card("Логи", "последние события", true)}}
+                ${{card("Диагностика", "безопасная сводка", true)}}
+              </div>`;
+          }}
+
+          function renderUsers(data, filters = {{}}) {{
             const rows = data.users.map((user) => `
               <tr>
                 <td>${{escapeHtml(user.email)}}</td>
-                <td>${{user.is_admin ? "да" : "нет"}}</td>
-                <td>${{user.is_active ? "активен" : "отключен"}}</td>
+                <td><span class="badge${{user.is_admin ? " warn" : ""}}">${{user.is_admin ? "да" : "нет"}}</span></td>
+                <td><span class="badge${{user.is_active ? " ok" : " error"}}">${{user.is_active ? "активен" : "отключен"}}</span></td>
                 <td>${{escapeHtml(formatDate(user.created_at))}}</td>
                 <td>${{escapeHtml(formatDate(user.last_login_at))}}</td>
                 <td>${{escapeHtml([user.last_client_app, user.last_client_version, user.last_client_version_code].filter(Boolean).join(" ")) || "—"}}</td>
@@ -276,7 +332,7 @@ def render_admin_page() -> str:
                 <td>${{escapeHtml(formatDate(user.last_client_seen_at))}}</td>
                 <td>${{user.lists_count}}</td>
                 <td>
-                  <div class="row-actions">
+                  <div class="admin-actions">
                   <button class="compact secondary" data-user-action="${{user.is_active ? "disable" : "enable"}}" data-user-id="${{user.id}}">
                     ${{user.is_active ? "Отключить" : "Включить"}}
                   </button>
@@ -286,68 +342,193 @@ def render_admin_page() -> str:
               </tr>`).join("");
             opsPanel.innerHTML = `
               <h3>Пользователи</h3>
+              <div class="filters">
+                <div><label for="users-query">Поиск по email</label><input id="users-query" value="${{escapeHtml(filters.query || "")}}" placeholder="user@example.com" /></div>
+                <div><label for="users-status">Фильтр</label><select id="users-status">
+                  <option value="all" ${{(filters.status || "all") === "all" ? "selected" : ""}}>Все</option>
+                  <option value="active" ${{filters.status === "active" ? "selected" : ""}}>Активные</option>
+                  <option value="disabled" ${{filters.status === "disabled" ? "selected" : ""}}>Отключённые</option>
+                  <option value="admins" ${{filters.status === "admins" ? "selected" : ""}}>Администраторы</option>
+                </select></div>
+                <div><label for="users-sort">Сортировка</label><select id="users-sort">
+                  <option value="created_at" ${{(filters.sort || "created_at") === "created_at" ? "selected" : ""}}>Дата создания</option>
+                  <option value="email" ${{filters.sort === "email" ? "selected" : ""}}>Email</option>
+                  <option value="last_sync" ${{filters.sort === "last_sync" ? "selected" : ""}}>Последняя синхронизация</option>
+                  <option value="android_version" ${{filters.sort === "android_version" ? "selected" : ""}}>Версия Android</option>
+                </select></div>
+                <button type="button" data-filter-action="users">Применить</button>
+              </div>
               <div class="table-wrap">
-              <table class="users-table">
+              <table class="admin-table">
                 <thead><tr><th>Email</th><th>Admin</th><th>Статус</th><th>Создан</th><th>Последний вход</th><th>Версия приложения</th><th>Платформа</th><th>Последний запуск</th><th>Списков</th><th>Действия</th></tr></thead>
                 <tbody>${{rows || '<tr><td colspan="10">Пользователей нет.</td></tr>'}}</tbody>
               </table>
               </div>`;
           }}
 
-          function renderLists(data) {{
+          function renderLists(data, filters = {{}}) {{
             const rows = data.lists.map((item) => `
               <tr>
+                <td>${{item.id}}</td>
                 <td>${{escapeHtml(item.name)}}</td>
                 <td>${{escapeHtml(item.owner_email || item.owner_id)}}</td>
                 <td>${{item.items_count}}</td>
                 <td>${{item.members_count}}</td>
-                <td>${{item.is_archived ? "архив" : "активен"}}</td>
+                <td><span class="badge${{item.is_archived ? " warn" : " ok"}}">${{item.is_archived ? "архив" : "активен"}}</span></td>
                 <td>${{escapeHtml(formatDate(item.updated_at))}}</td>
                 <td>
+                  <div class="admin-actions">
                   <button class="compact secondary" data-list-action="details" data-list-id="${{item.id}}">Детали</button>
                   <button class="compact secondary" data-list-action="${{item.is_archived ? "restore" : "archive"}}" data-list-id="${{item.id}}">
                     ${{item.is_archived ? "Восстановить" : "Архивировать"}}
                   </button>
+                  </div>
                 </td>
               </tr>`).join("");
             opsPanel.innerHTML = `
               <h3>Списки</h3>
-              <table>
-                <thead><tr><th>Название</th><th>Владелец</th><th>Товаров</th><th>Участников</th><th>Статус</th><th>Обновлен</th><th>Действия</th></tr></thead>
-                <tbody>${{rows || '<tr><td colspan="7">Списков нет.</td></tr>'}}</tbody>
-              </table>`;
+              <div class="filters">
+                <div><label for="lists-query">Поиск по названию</label><input id="lists-query" value="${{escapeHtml(filters.query || "")}}" placeholder="Покупки" /></div>
+                <div><label for="lists-status">Фильтр</label><select id="lists-status">
+                  <option value="all" ${{(filters.status || "all") === "all" ? "selected" : ""}}>Все</option>
+                  <option value="active" ${{filters.status === "active" ? "selected" : ""}}>Активные</option>
+                  <option value="archived" ${{filters.status === "archived" ? "selected" : ""}}>Архивные</option>
+                </select></div>
+                <div></div>
+                <button type="button" data-filter-action="lists">Применить</button>
+              </div>
+              <div class="table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>ID</th><th>Название</th><th>Владелец</th><th>Товаров</th><th>Участников</th><th>Статус</th><th>Обновлен</th><th>Действия</th></tr></thead>
+                <tbody>${{rows || '<tr><td colspan="8">Списков нет.</td></tr>'}}</tbody>
+              </table>
+              </div>`;
           }}
 
-          function renderInvites(data) {{
+          function renderInvites(data, filters = {{}}) {{
             const rows = data.invites.map((invite) => `
               <tr>
-                <td>${{escapeHtml(invite.list_name || invite.list_id)}}</td>
+                <td>${{escapeHtml(invite.list_name || invite.list_id)}} <span class="label">#${{invite.list_id}}</span></td>
                 <td>${{escapeHtml(invite.created_by || "")}}</td>
                 <td>${{escapeHtml(invite.token_preview)}}</td>
+                <td>${{escapeHtml(formatDate(invite.created_at))}}</td>
                 <td>${{escapeHtml(formatDate(invite.expires_at))}}</td>
                 <td>${{escapeHtml(formatDate(invite.used_at))}}</td>
                 <td>${{escapeHtml(formatDate(invite.revoked_at))}}</td>
                 <td>
-                  ${{invite.used_at || invite.revoked_at ? "" : `<button class="compact danger" data-invite-action="revoke" data-invite-id="${{invite.id}}">Отозвать</button>`}}
+                  <div class="admin-actions">
+                    ${{invite.used_at || invite.revoked_at ? "" : `<button class="compact danger" data-invite-action="revoke" data-invite-id="${{invite.id}}">Отозвать</button>`}}
+                  </div>
                 </td>
               </tr>`).join("");
             opsPanel.innerHTML = `
               <h3>Приглашения</h3>
-              <table>
-                <thead><tr><th>Список</th><th>Создал</th><th>Token</th><th>Истекает</th><th>Использовано</th><th>Отозвано</th><th>Действия</th></tr></thead>
-                <tbody>${{rows || '<tr><td colspan="7">Приглашений нет.</td></tr>'}}</tbody>
-              </table>`;
+              <div class="filters">
+                <div><label for="invites-query">Поиск по списку или ID</label><input id="invites-query" value="${{escapeHtml(filters.query || "")}}" placeholder="Покупки или 12" /></div>
+                <div><label for="invites-status">Фильтр</label><select id="invites-status">
+                  <option value="active" ${{(filters.status || "active") === "active" ? "selected" : ""}}>Активные</option>
+                  <option value="used" ${{filters.status === "used" ? "selected" : ""}}>Использованные</option>
+                  <option value="expired" ${{filters.status === "expired" ? "selected" : ""}}>Истёкшие</option>
+                  <option value="revoked" ${{filters.status === "revoked" ? "selected" : ""}}>Отозванные</option>
+                  <option value="all" ${{filters.status === "all" ? "selected" : ""}}>Все</option>
+                </select></div>
+                <div></div>
+                <button type="button" data-filter-action="invites">Применить</button>
+              </div>
+              <div class="table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Список</th><th>Создал</th><th>Token</th><th>Создано</th><th>Истекает</th><th>Использовано</th><th>Отозвано</th><th>Действия</th></tr></thead>
+                <tbody>${{rows || '<tr><td colspan="8">Приглашений нет.</td></tr>'}}</tbody>
+              </table>
+              </div>`;
           }}
 
-          async function loadAdminView(view) {{
+          function renderSystem(data) {{
+            const migration = data.migration || {{}};
+            opsPanel.innerHTML = `
+              <h3>Система</h3>
+              <div class="grid">
+                ${{card("Backend version", data.version, true)}}
+                ${{card("База данных", data.database === "ok" ? '<span class="badge ok">доступна</span>' : '<span class="badge error">ошибка</span>', true)}}
+                ${{card("Current revision", migration.current || "нет данных", true)}}
+                ${{card("Head revision", migration.head || "нет данных", true)}}
+                ${{card("Migration status", `<span class="badge ${{migration.status === "up-to-date" ? "ok" : "warn"}}">${{escapeHtml(migration.status || "unknown")}}</span>`, true)}}
+                ${{card("Uptime", `${{data.uptime_seconds}} сек.`, true)}}
+                ${{card("Server time", formatDate(data.server_time), true)}}
+                ${{card("Регистрация", data.registration_enabled ? '<span class="badge ok">разрешена</span>' : '<span class="badge warn">отключена</span>', true)}}
+                ${{card("Rate limit", data.rate_limit || "нет данных", true)}}
+                ${{card("Окружение", data.environment || "production", true)}}
+              </div>`;
+          }}
+
+          function safeReport(title, data) {{
+            return `${{title}}\n${{JSON.stringify(data, null, 2)}}`;
+          }}
+
+          function renderLogs(data, filters = {{}}) {{
+            const events = data.events || [];
+            const rows = events.map((event) => `
+              <tr>
+                <td>${{escapeHtml(formatDate(event.timestamp))}}</td>
+                <td><span class="badge${{event.level === "error" ? " error" : event.level === "warning" ? " warn" : " ok"}}">${{escapeHtml(event.level || "info")}}</span></td>
+                <td>${{escapeHtml(event.event || "")}}</td>
+                <td>${{escapeHtml(event.details || "")}}</td>
+              </tr>`).join("");
+            opsPanel.innerHTML = `
+              <h3>Логи</h3>
+              <div class="filters">
+                <div><label for="logs-event">Фильтр события</label><input id="logs-event" value="${{escapeHtml(filters.event_type || "")}}" placeholder="login, rate limit..." /></div>
+                <div><label for="logs-level">Уровень</label><select id="logs-level">
+                  <option value="all" ${{(filters.level || "all") === "all" ? "selected" : ""}}>Все</option>
+                  <option value="info" ${{filters.level === "info" ? "selected" : ""}}>Info</option>
+                  <option value="warning" ${{filters.level === "warning" ? "selected" : ""}}>Warning</option>
+                  <option value="error" ${{filters.level === "error" ? "selected" : ""}}>Error</option>
+                </select></div>
+                <button type="button" data-filter-action="logs">Обновить</button>
+                <button type="button" class="secondary" data-copy-report="logs">Скопировать логи</button>
+              </div>
+              <div class="table-wrap">
+              <table class="admin-table">
+                <thead><tr><th>Время</th><th>Уровень</th><th>Событие</th><th>Детали</th></tr></thead>
+                <tbody>${{rows || '<tr><td colspan="4">Событий нет.</td></tr>'}}</tbody>
+              </table>
+              </div>
+              <script type="application/json" id="logs-report">${{escapeHtml(safeReport("Shopping List Admin Logs", data))}}</script>`;
+          }}
+
+          function renderDiagnostics(data) {{
+            opsPanel.innerHTML = `
+              <h3>Диагностика</h3>
+              <div class="actions" style="margin-top: 0; margin-bottom: 14px;">
+                <button type="button" class="secondary" data-copy-report="diagnostics">Скопировать диагностику</button>
+              </div>
+              <div class="grid">
+                ${{card("Backend version", data.version, true)}}
+                ${{card("DB status", data.health?.database || "нет данных", true)}}
+                ${{card("Migration", data.migration?.status || "нет данных", true)}}
+                ${{card("Uptime", `${{data.uptime_seconds}} сек.`, true)}}
+                ${{card("Users", data.counts?.users ?? 0)}}
+                ${{card("Lists", data.counts?.lists ?? 0)}}
+                ${{card("Items", data.counts?.items ?? 0)}}
+                ${{card("Invites", data.counts?.invites ?? 0)}}
+                ${{card("Client operations", data.counts?.client_operations ?? 0)}}
+              </div>
+              <h4>Последние события</h4>
+              <pre>${{escapeHtml(JSON.stringify(data.last_events || [], null, 2))}}</pre>
+              <script type="application/json" id="diagnostics-report">${{escapeHtml(safeReport("Shopping List Admin Diagnostics", data))}}</script>`;
+          }}
+
+          async function loadAdminView(view, filters = {{}}) {{
             try {{
+              setActiveView(view);
               opsPanel.innerHTML = "<p>Загрузка...</p>";
-              if (view === "users") renderUsers(await adminFetch("/admin/users"));
-              if (view === "lists") renderLists(await adminFetch("/admin/lists"));
-              if (view === "invites") renderInvites(await adminFetch("/admin/invites"));
-              if (view === "system") renderJson("Система", await adminFetch("/admin/system"));
-              if (view === "logs") renderJson("Логи", await adminFetch("/admin/logs"));
-              if (view === "diagnostics") renderJson("Диагностика", await adminFetch("/admin/diagnostics"));
+              if (view === "home") renderHome();
+              if (view === "users") renderUsers(await adminFetch("/admin/users" + buildQuery(filters)), filters);
+              if (view === "lists") renderLists(await adminFetch("/admin/lists" + buildQuery(filters)), filters);
+              if (view === "invites") renderInvites(await adminFetch("/admin/invites" + buildQuery(filters)), filters);
+              if (view === "system") renderSystem(await adminFetch("/admin/system"));
+              if (view === "logs") renderLogs(await adminFetch("/admin/logs" + buildQuery(filters)), filters);
+              if (view === "diagnostics") renderDiagnostics(await adminFetch("/admin/diagnostics"));
             }} catch (error) {{
               showMessage(error.message, "error");
               opsPanel.innerHTML = "<p>Не удалось загрузить раздел.</p>";
@@ -420,6 +601,8 @@ def render_admin_page() -> str:
             const data = await response.json();
             localStorage.setItem(tokenKey, data.access_token);
             await loadStatus();
+            renderHome();
+            setActiveView("home");
           }});
 
           refreshButton.addEventListener("click", loadStatus);
@@ -430,6 +613,41 @@ def render_admin_page() -> str:
             const button = event.target.closest("button");
             if (!button) return;
             try {{
+              if (button.dataset.filterAction === "users") {{
+                await loadAdminView("users", {{
+                  query: document.querySelector("#users-query")?.value || "",
+                  status: document.querySelector("#users-status")?.value || "all",
+                  sort: document.querySelector("#users-sort")?.value || "created_at",
+                }});
+                return;
+              }}
+              if (button.dataset.filterAction === "lists") {{
+                await loadAdminView("lists", {{
+                  query: document.querySelector("#lists-query")?.value || "",
+                  status: document.querySelector("#lists-status")?.value || "all",
+                }});
+                return;
+              }}
+              if (button.dataset.filterAction === "invites") {{
+                await loadAdminView("invites", {{
+                  query: document.querySelector("#invites-query")?.value || "",
+                  status: document.querySelector("#invites-status")?.value || "active",
+                }});
+                return;
+              }}
+              if (button.dataset.filterAction === "logs") {{
+                await loadAdminView("logs", {{
+                  event_type: document.querySelector("#logs-event")?.value || "",
+                  level: document.querySelector("#logs-level")?.value || "all",
+                }});
+                return;
+              }}
+              if (button.dataset.copyReport === "logs" || button.dataset.copyReport === "diagnostics") {{
+                const report = document.querySelector(`#${{button.dataset.copyReport}}-report`)?.textContent || "";
+                await navigator.clipboard.writeText(report);
+                showMessage("Отчёт скопирован.", "ok");
+                return;
+              }}
               if (button.dataset.userAction === "disable") {{
                 if (!confirm("Отключить пользователя?")) return;
                 await adminFetch(`/admin/users/${{button.dataset.userId}}/disable`, {{ method: "POST" }});
@@ -498,7 +716,12 @@ def render_admin_page() -> str:
             showMessage("Вы вышли из админ-панели.", "ok");
           }});
 
-          loadStatus();
+          loadStatus().then(() => {{
+            if (localStorage.getItem(tokenKey)) {{
+              renderHome();
+              setActiveView("home");
+            }}
+          }});
         </script>
       </body>
     </html>

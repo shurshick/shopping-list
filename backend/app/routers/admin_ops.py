@@ -1,7 +1,8 @@
 import os
+import os
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -145,20 +146,51 @@ def admin_diagnostics(current_user: User = Depends(get_current_user), db: Sessio
             "invites": count_or_zero(db, select(func.count(ListInvite.id))),
             "client_operations": count_or_zero(db, select(func.count(ClientOperation.id))),
         },
+        "uptime_seconds": uptime_seconds(),
         "last_events": recent_events(20),
     }
 
 
 @router.get("/admin/logs")
-def admin_logs(current_user: User = Depends(get_current_user)):
+def admin_logs(
+    level: str = Query("all"),
+    event_type: str = Query(""),
+    current_user: User = Depends(get_current_user),
+):
     require_admin(current_user)
-    return {"events": recent_events(300)}
+    events = recent_events(300)
+    if level != "all":
+        events = [event for event in events if str(event.get("level", "")).lower() == level.lower()]
+    if event_type:
+        events = [event for event in events if event_type.lower() in str(event.get("event", "")).lower()]
+    return {"events": events}
 
 
 @router.get("/admin/users")
-def admin_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def admin_users(
+    status_filter: str = Query("all", alias="status"),
+    query: str = Query(""),
+    sort: str = Query("created_at"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     require_admin(current_user)
     users = db.scalars(select(User).order_by(User.created_at.desc(), User.id.desc())).all()
+    normalized_query = query.strip().lower()
+    if normalized_query:
+        users = [user for user in users if normalized_query in user.email.lower()]
+    if status_filter == "active":
+        users = [user for user in users if user.is_active]
+    elif status_filter == "disabled":
+        users = [user for user in users if not user.is_active]
+    elif status_filter == "admins":
+        users = [user for user in users if user.is_admin]
+    if sort == "email":
+        users = sorted(users, key=lambda user: user.email.lower())
+    elif sort == "last_sync":
+        users = sorted(users, key=lambda user: user.last_client_seen_at or datetime.min, reverse=True)
+    elif sort == "android_version":
+        users = sorted(users, key=lambda user: user.last_client_version or "", reverse=True)
     rows = []
     for user in users:
         rows.append(
@@ -221,9 +253,21 @@ def set_user_password(
 
 
 @router.get("/admin/lists")
-def admin_lists(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def admin_lists(
+    status_filter: str = Query("all", alias="status"),
+    query: str = Query(""),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     require_admin(current_user)
     lists = db.scalars(select(ShoppingList).order_by(ShoppingList.updated_at.desc(), ShoppingList.id.desc())).all()
+    normalized_query = query.strip().lower()
+    if normalized_query:
+        lists = [shopping_list for shopping_list in lists if normalized_query in shopping_list.name.lower()]
+    if status_filter == "active":
+        lists = [shopping_list for shopping_list in lists if shopping_list.archived_at is None]
+    elif status_filter == "archived":
+        lists = [shopping_list for shopping_list in lists if shopping_list.archived_at is not None]
     rows = []
     for shopping_list in lists:
         owner = db.get(User, shopping_list.owner_id)
@@ -247,6 +291,8 @@ def admin_lists(current_user: User = Depends(get_current_user), db: Session = De
 def admin_list_details(list_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_admin(current_user)
     shopping_list = get_target_list(db, list_id)
+    members = db.scalars(select(ListMember).where(ListMember.list_id == list_id).order_by(ListMember.id)).all()
+    member_users = {member.user_id: db.get(User, member.user_id) for member in members}
     return {
         "id": shopping_list.id,
         "name": shopping_list.name,
@@ -258,8 +304,8 @@ def admin_list_details(list_id: int, current_user: User = Depends(get_current_us
             for item in db.scalars(select(ShoppingItem).where(ShoppingItem.list_id == list_id).order_by(ShoppingItem.id)).all()
         ],
         "members": [
-            {"user_id": member.user_id}
-            for member in db.scalars(select(ListMember).where(ListMember.list_id == list_id).order_by(ListMember.id)).all()
+            {"user_id": member.user_id, "email": member_users[member.user_id].email if member_users[member.user_id] else None}
+            for member in members
         ],
     }
 
@@ -286,9 +332,31 @@ def restore_list(list_id: int, current_user: User = Depends(get_current_user), d
 
 
 @router.get("/admin/invites")
-def admin_invites(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def admin_invites(
+    status_filter: str = Query("active", alias="status"),
+    query: str = Query(""),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     require_admin(current_user)
     invites = db.scalars(select(ListInvite).order_by(ListInvite.created_at.desc(), ListInvite.id.desc())).all()
+    now = datetime.utcnow()
+    normalized_query = query.strip().lower()
+    if normalized_query:
+        invites = [
+            invite
+            for invite in invites
+            if normalized_query in str(invite.list_id)
+            or normalized_query in ((shopping_list.name.lower()) if (shopping_list := db.get(ShoppingList, invite.list_id)) else "")
+        ]
+    if status_filter == "active":
+        invites = [invite for invite in invites if invite.used_at is None and invite.revoked_at is None and (invite.expires_at is None or invite.expires_at >= now)]
+    elif status_filter == "used":
+        invites = [invite for invite in invites if invite.used_at is not None]
+    elif status_filter == "expired":
+        invites = [invite for invite in invites if invite.used_at is None and invite.revoked_at is None and invite.expires_at is not None and invite.expires_at < now]
+    elif status_filter == "revoked":
+        invites = [invite for invite in invites if invite.revoked_at is not None]
     rows = []
     for invite in invites:
         shopping_list = db.get(ShoppingList, invite.list_id)
