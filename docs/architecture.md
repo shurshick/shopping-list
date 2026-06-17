@@ -1,6 +1,6 @@
 # Архитектура проекта
 
-Документ актуален для `v1.4.6`.
+Документ актуален для `v1.4.7`.
 
 ## Общая схема
 
@@ -22,9 +22,20 @@
 - `ShoppingViewModel.kt` хранит состояние экрана и вызывает API/storage-слои.
 - `data/ApiClient.kt`, `data/ShoppingApi.kt`, `data/ApiModels.kt` отвечают за HTTP API.
 - `data/local/TokenStorage.kt` хранит токен в `EncryptedSharedPreferences`, переносит старый токен из обычных preferences и очищает токен при выходе.
-- `data/local/AppPreferences.kt` хранит адрес сервера, тему, выбранный список, кеш списков и временные ID.
+- `data/local/AppPreferences.kt` хранит настройки сервера, тему, выбранный список, кеш списков и временные ID.
 - `data/local/OfflineQueueStorage.kt` хранит JSON offline-очереди.
 - `data/local/ProductCatalogStorage.kt` хранит справочник товаров.
+- `data/local/ServerSettings.kt` хранит модель `ServerSettings`, где `useTestServer` и `customServerUrl` лежат отдельно, а `effectiveServerUrl` вычисляется без потери ручного адреса.
+
+## Server Identity Model
+
+Для Android сервер считается частью идентичности аккаунта:
+
+- `serverUrl`
+- `email`
+- `token`
+
+Поэтому внутри активной сессии приложение не меняет `effectiveServerUrl` напрямую. В настройках пользователь видит текущий сервер и кнопку `Сменить сервер`, а подтвержденная смена сервера завершает текущую сессию, очищает токен, локальный кеш списков и pending offline operations.
 
 ## Offline Queue
 
