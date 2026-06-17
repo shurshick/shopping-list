@@ -37,7 +37,7 @@ class AppPreferences(context: Context, private val gson: Gson) {
     }
 
     fun saveServerSettings(settings: ServerSettings) {
-        val normalized = settings.copy(customServerUrl = normalizeServerUrl(settings.customServerUrl))
+        val normalized = settings.copy(customServerUrl = normalizeCustomServerInput(settings.customServerUrl))
         useTestServer = normalized.useTestServer
         customServerUrl = normalized.customServerUrl
         serverUrl = normalized.effectiveServerUrl

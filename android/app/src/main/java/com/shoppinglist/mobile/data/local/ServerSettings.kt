@@ -14,8 +14,12 @@ fun effectiveServerUrl(useTestServer: Boolean, customServerUrl: String): String 
     return ServerSettings(useTestServer = useTestServer, customServerUrl = customServerUrl).effectiveServerUrl
 }
 
+fun normalizeCustomServerInput(serverUrl: String): String {
+    return serverUrl.trim().trimEnd('/')
+}
+
 fun normalizeServerUrl(serverUrl: String): String {
-    val trimmed = serverUrl.trim().trimEnd('/')
+    val trimmed = normalizeCustomServerInput(serverUrl)
     if (trimmed.isBlank()) return ""
     return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
         trimmed

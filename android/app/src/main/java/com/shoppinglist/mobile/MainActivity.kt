@@ -193,7 +193,7 @@ private fun LoginScreen(
         Text("Войдите или создайте аккаунт", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(
-            state.serverUrl,
+            state.customServerUrl,
             {
                 onServerUrl(it)
             },

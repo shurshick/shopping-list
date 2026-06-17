@@ -56,4 +56,10 @@ class ServerSettingsTest {
 
         assertEquals("https://my.example.com", settings.effectiveServerUrl)
     }
+
+    @Test
+    fun customServerInputDoesNotAddSchemeWhileTyping() {
+        assertEquals("my.example.com", normalizeCustomServerInput(" my.example.com/ "))
+        assertEquals("h", normalizeCustomServerInput("h"))
+    }
 }
