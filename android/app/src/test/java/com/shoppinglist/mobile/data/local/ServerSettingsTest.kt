@@ -48,6 +48,16 @@ class ServerSettingsTest {
     }
 
     @Test
+    fun customServerWithHttpsDoesNotDuplicateScheme() {
+        val settings = ServerSettings(
+            useTestServer = false,
+            customServerUrl = "https://my.example.com"
+        )
+
+        assertEquals("https://my.example.com", settings.effectiveServerUrl)
+    }
+
+    @Test
     fun customServerUrlTrimsTrailingSlash() {
         val settings = ServerSettings(
             useTestServer = false,
