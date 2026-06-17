@@ -34,7 +34,7 @@ from ..services.migration_service import current_revision
 from ..setup import get_server_settings
 
 
-APP_VERSION = "1.4.9"
+APP_VERSION = "1.5.0"
 
 router = APIRouter()
 

@@ -79,4 +79,34 @@ class ShoppingUiStateTest {
         assertEquals("https://old.example.com", cleared.customServerUrl)
         assertEquals("user@example.com", cleared.email)
     }
+
+    @Test
+    fun fastInputTrimsValueAndRejectsBlank() {
+        assertEquals("Молоко 2 л", normalizeFastInput("  Молоко 2 л  "))
+        assertNull(normalizeFastInput("   "))
+    }
+
+    @Test
+    fun defaultListWinsOverLastSelectedWhenAvailable() {
+        val lists = listOf(
+            ShoppingListDto(id = 1, name = "Дом", owner_id = 1, updated_at = "now", items = emptyList()),
+            ShoppingListDto(id = 2, name = "Основной", owner_id = 1, updated_at = "now", items = emptyList())
+        )
+
+        val selected = chooseStartupListId(lists, selectedListId = 1, defaultListId = 2)
+
+        assertEquals(2, selected)
+    }
+
+    @Test
+    fun defaultListFallsBackToSelectedOrFirstAvailable() {
+        val lists = listOf(
+            ShoppingListDto(id = 1, name = "Дом", owner_id = 1, updated_at = "now", items = emptyList()),
+            ShoppingListDto(id = 2, name = "Работа", owner_id = 1, updated_at = "now", items = emptyList())
+        )
+
+        assertEquals(1, chooseStartupListId(lists, selectedListId = 1, defaultListId = 99))
+        assertEquals(1, chooseStartupListId(lists, selectedListId = 99, defaultListId = 98))
+        assertNull(chooseStartupListId(emptyList(), selectedListId = 1, defaultListId = 2))
+    }
 }

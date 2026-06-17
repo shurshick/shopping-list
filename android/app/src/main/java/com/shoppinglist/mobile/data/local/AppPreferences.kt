@@ -79,6 +79,18 @@ class AppPreferences(context: Context, private val gson: Gson) {
             editor.apply()
         }
 
+    var defaultListId: Int?
+        get() = preferences.getInt("defaultListId", 0).takeIf { it > 0 }
+        set(value) {
+            val editor = preferences.edit()
+            if (value == null) {
+                editor.remove("defaultListId")
+            } else {
+                editor.putInt("defaultListId", value)
+            }
+            editor.apply()
+        }
+
     fun loadCachedLists(): List<ShoppingListDto> {
         val stored = preferences.getString("cachedLists", null) ?: return emptyList()
         return runCatching {
@@ -98,6 +110,7 @@ class AppPreferences(context: Context, private val gson: Gson) {
             .remove("lastSyncAttemptAt")
             .remove("lastSyncError")
             .remove("selectedListId")
+            .remove("defaultListId")
             .apply()
     }
 

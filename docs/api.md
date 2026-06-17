@@ -1,6 +1,6 @@
 # API сервера
 
-Актуально для версии `v1.4.9`.
+Актуально для версии `v1.5.0`.
 
 Базовый адрес: `https://your-domain.example`
 
@@ -47,8 +47,8 @@ Authorization: Bearer <token>
 
 ```text
 X-Client-App: shopping-list-android
-X-Client-Version: 1.4.9
-X-Client-Version-Code: 32
+X-Client-Version: 1.5.0
+X-Client-Version-Code: 33
 X-Client-Platform: android
 X-Client-Os-Version: 14
 ```
@@ -125,7 +125,7 @@ Android-экран диагностики использует `/health/live`, `
 ```json
 {
   "status": "ok",
-  "version": "1.4.9",
+  "version": "1.5.0",
   "timestamp": "2026-06-13T12:00:00"
 }
 ```

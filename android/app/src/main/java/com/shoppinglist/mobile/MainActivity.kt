@@ -40,8 +40,11 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Undo
@@ -80,7 +83,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -123,6 +132,7 @@ class MainActivity : ComponentActivity() {
                             state,
                             viewModel::sync,
                             viewModel::selectList,
+                            viewModel::setDefaultList,
                             viewModel::createList,
                             viewModel::createItem,
                             viewModel::toggleItem,
@@ -250,6 +260,7 @@ private fun ShoppingScreen(
     state: ShoppingUiState,
     onSync: () -> Unit,
     onSelectList: (Int) -> Unit,
+    onSetDefaultList: (Int) -> Unit,
     onCreateList: (String) -> Unit,
     onCreateItem: (String, String) -> Unit,
     onToggleItem: (Int, Boolean) -> Unit,
@@ -280,6 +291,8 @@ private fun ShoppingScreen(
 ) {
     var itemName by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("") }
+    val itemNameFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
     var menuOpen by remember { mutableStateOf(false) }
     var listMenuOpen by remember { mutableStateOf(false) }
     var createListDialogOpen by remember { mutableStateOf(false) }
@@ -375,6 +388,10 @@ private fun ShoppingScreen(
                         onCopy = {
                             listMenuOpen = false
                             onCopyList()
+                        },
+                        onSetDefault = {
+                            selectedList?.let { onSetDefaultList(it.id) }
+                            listMenuOpen = false
                         },
                         onClear = {
                             listMenuOpen = false
@@ -480,11 +497,20 @@ private fun ShoppingScreen(
                         onQuantity = { quantity = it },
                         onPickSuggestion = { itemName = it },
                         onAdd = {
-                            if (itemName.isNotBlank()) {
-                                onCreateItem(itemName.trim(), quantity.trim())
+                            val normalizedItemName = itemName.trim()
+                            if (normalizedItemName.isNotBlank()) {
+                                onCreateItem(normalizedItemName, quantity.trim())
                                 itemName = ""
                                 quantity = ""
+                                itemNameFocusRequester.requestFocus()
+                                keyboardController?.show()
                             }
+                        },
+                        focusRequester = itemNameFocusRequester,
+                        onClear = {
+                            itemName = ""
+                            itemNameFocusRequester.requestFocus()
+                            keyboardController?.show()
                         }
                     )
                 }
@@ -519,6 +545,12 @@ private fun ShoppingScreen(
                     }
                 }
 
+                if (selectedList.items.isEmpty()) {
+                    item { EmptyStateCard("Список пуст", "Добавьте первый товар") }
+                } else if (activeItems.isEmpty() && purchasedItems.isNotEmpty()) {
+                    item { EmptyStateCard("Все товары куплены", "Можно очистить купленные или вернуть их в список") }
+                }
+
                 if (state.isOffline || state.pendingOperationCount > 0 || state.lastSuccessfulSync != null) {
                     item {
                         SyncStatusCard(
@@ -533,8 +565,8 @@ private fun ShoppingScreen(
                 item {
                     ElevatedCard {
                         Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Создайте первый список", style = MaterialTheme.typography.titleMedium)
-                            Text("Нажмите + в верхней панели, чтобы добавить список.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("У вас пока нет списков", style = MaterialTheme.typography.titleMedium)
+                            Text("Создайте первый список покупок", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -562,11 +594,13 @@ private fun ShoppingScreen(
         SelectListDialog(
             lists = state.lists,
             selectedListId = state.selectedListId,
+            defaultListId = state.defaultListId,
             onDismiss = { selectListDialogOpen = false },
             onSelect = {
                 onSelectList(it)
                 selectListDialogOpen = false
-            }
+            },
+            onSetDefault = onSetDefaultList
         )
     }
 
@@ -760,6 +794,21 @@ private fun ListSectionHeader(title: String) {
 }
 
 @Composable
+private fun EmptyStateCard(title: String, subtitle: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
 private fun DeletedItemUndoCard(onUndo: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
         Row(
@@ -875,7 +924,9 @@ private fun ItemCreateCard(
     onItemName: (String) -> Unit,
     onQuantity: (String) -> Unit,
     onPickSuggestion: (String) -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    focusRequester: FocusRequester,
+    onClear: () -> Unit
 ) {
     val suggestions = remember(itemName, catalog) {
         val query = itemName.trim()
@@ -897,8 +948,18 @@ private fun ItemCreateCard(
                     placeholder = { Text("Товар") },
                     modifier = Modifier
                         .weight(1f)
-                        .height(56.dp),
-                    singleLine = true
+                        .height(56.dp)
+                        .focusRequester(focusRequester),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (itemName.isNotEmpty()) {
+                            IconButton(onClick = onClear) {
+                                Icon(Icons.Default.Close, contentDescription = "Очистить поле")
+                            }
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onAdd() })
                 )
                 OutlinedTextField(
                     quantity,
@@ -907,7 +968,9 @@ private fun ItemCreateCard(
                     modifier = Modifier
                         .weight(0.65f)
                         .height(56.dp),
-                    singleLine = true
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onAdd() })
                 )
                 IconButton(onClick = onAdd, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Default.Add, contentDescription = "Добавить товар")
@@ -937,6 +1000,7 @@ private fun ListDropdownMenu(
     onClearActivity: () -> Unit,
     onRename: () -> Unit,
     onCopy: () -> Unit,
+    onSetDefault: () -> Unit,
     onClear: () -> Unit,
     onClearPurchased: () -> Unit,
     onRestorePurchased: () -> Unit,
@@ -974,6 +1038,12 @@ private fun ListDropdownMenu(
             leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
             enabled = enabled,
             onClick = onCopy
+        )
+        DropdownMenuItem(
+            text = { Text("Сделать основным") },
+            leadingIcon = { Icon(Icons.Default.Star, contentDescription = null) },
+            enabled = enabled,
+            onClick = onSetDefault
         )
         DropdownMenuItem(
             text = { Text("Очистить") },
@@ -1017,6 +1087,10 @@ private fun ListDropdownMenu(
 @Composable
 private fun CreateListDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Новый список") },
@@ -1025,12 +1099,19 @@ private fun CreateListDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) 
                 name,
                 { name = it },
                 label = { Text("Название списка") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    val normalizedName = name.trim()
+                    if (normalizedName.isNotBlank()) onCreate(normalizedName)
+                })
             )
         },
         confirmButton = {
-            Button(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }) {
+            Button(onClick = { if (name.isNotBlank()) onCreate(name.trim()) }, enabled = name.isNotBlank()) {
                 Text("Создать")
             }
         },
@@ -1044,23 +1125,63 @@ private fun CreateListDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) 
 private fun SelectListDialog(
     lists: List<com.shoppinglist.mobile.data.ShoppingListDto>,
     selectedListId: Int?,
+    defaultListId: Int?,
     onDismiss: () -> Unit,
-    onSelect: (Int) -> Unit
+    onSelect: (Int) -> Unit,
+    onSetDefault: (Int) -> Unit
 ) {
+    var query by remember { mutableStateOf("") }
+    val filteredLists = remember(lists, query) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isBlank()) {
+            lists
+        } else {
+            lists.filter { it.name.contains(normalizedQuery, ignoreCase = true) }
+        }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Выбрать список") },
         text = {
-            LazyColumn(modifier = Modifier.height(320.dp)) {
-                items(lists) { list ->
-                    FilterChip(
-                        selected = list.id == selectedListId,
-                        onClick = { onSelect(list.id) },
-                        label = { Text(list.name) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (lists.size > 5) {
+                    OutlinedTextField(
+                        query,
+                        { query = it },
+                        label = { Text("Поиск списка") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
                     )
+                }
+                LazyColumn(modifier = Modifier.height(320.dp)) {
+                    items(filteredLists) { list ->
+                        FilterChip(
+                            selected = list.id == selectedListId,
+                            onClick = { onSelect(list.id) },
+                            label = {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(list.name)
+                                    if (list.id == defaultListId) {
+                                        Icon(Icons.Default.Star, contentDescription = "Основной список", modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            },
+                            trailingIcon = {
+                                IconButton(onClick = { onSetDefault(list.id) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Star, contentDescription = "Сделать основным", modifier = Modifier.size(18.dp))
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        )
+                    }
+                    if (filteredLists.isEmpty()) {
+                        item {
+                            Text("Списки не найдены", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         },

@@ -49,6 +49,7 @@ data class ShoppingUiState(
     val productCatalog: List<String> = emptyList(),
     val themeMode: String = "system",
     val selectedListId: Int? = null,
+    val defaultListId: Int? = null,
     val pendingOperationCount: Int = 0,
     val canUndoDelete: Boolean = false,
     val isOffline: Boolean = false,
@@ -71,6 +72,7 @@ internal fun ShoppingUiState.clearedForServerChange(): ShoppingUiState {
         inviteUrl = "",
         pendingInviteToken = null,
         selectedListId = null,
+        defaultListId = null,
         pendingOperationCount = 0,
         canUndoDelete = false,
         isOffline = false,
@@ -144,6 +146,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             productCatalog = productCatalogStorage.load(defaultProducts),
             themeMode = appPreferences.themeMode,
             selectedListId = appPreferences.selectedListId,
+            defaultListId = appPreferences.defaultListId,
             pendingOperationCount = pendingOperations.size,
             lastSuccessfulSync = appPreferences.lastSuccessfulSync,
             lastSyncAttemptAt = appPreferences.lastSyncAttemptAt,
@@ -214,8 +217,12 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             val api = api()
             replayPendingOperations(api, token)
             val response = api.sync("Bearer $token")
-            val selectedListId = _state.value.selectedListId
-            val nextSelected = response.lists.firstOrNull { it.id == selectedListId }?.id ?: response.lists.firstOrNull()?.id
+            val nextSelected = chooseStartupListId(
+                lists = response.lists,
+                selectedListId = _state.value.selectedListId,
+                defaultListId = _state.value.defaultListId
+            )
+            val nextDefault = response.lists.firstOrNull { it.id == _state.value.defaultListId }?.id
             cacheLists(response.lists)
             val syncedAt = localTimestamp()
             appPreferences.lastSuccessfulSync = syncedAt
@@ -223,6 +230,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             _state.value = _state.value.copy(
                 lists = response.lists,
                 selectedListId = nextSelected,
+                defaultListId = nextDefault,
                 pendingOperationCount = pendingOperations.size,
                 isOffline = false,
                 lastSuccessfulSync = syncedAt,
@@ -230,6 +238,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 message = null
             )
             saveSelectedListId(nextSelected)
+            saveDefaultListId(nextDefault)
         }
     }
 
@@ -288,28 +297,41 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
 
     fun createList(name: String) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
+        val normalizedName = normalizeFastInput(name)
+        if (normalizedName == null) {
+            update { copy(message = "Укажите название списка") }
+            return@launch
+        }
         val operationId = newOperationId()
         val tempId = nextTempId().toString()
-        runOnlineThenSync(
-            online = {
-                api().createList(
-                    authorization = "Bearer $token",
-                    clientOperationId = operationId,
-                    request = ListCreate(name, client_operation_id = operationId, temp_id = tempId)
-                )
-            },
-            offline = {
-                enqueue(PendingOperation("create_list", clientOperationId = operationId, tempId = tempId, name = name))
-                setOfflineMessage("Список будет создан после восстановления связи")
-            }
-        )
+        _state.value = _state.value.copy(isLoading = true, message = null)
+        try {
+            api().createList(
+                authorization = "Bearer $token",
+                clientOperationId = operationId,
+                request = ListCreate(normalizedName, client_operation_id = operationId, temp_id = tempId)
+            )
+            sync()
+            _state.value.lists
+                .filter { it.name == normalizedName }
+                .maxByOrNull { it.id }
+                ?.id
+                ?.let { selectList(it) }
+        } catch (error: Exception) {
+            enqueue(PendingOperation("create_list", clientOperationId = operationId, tempId = tempId, name = normalizedName))
+            _state.value = _state.value.copy(isOffline = true, message = "Список будет создан после восстановления связи")
+        } finally {
+            _state.value = _state.value.copy(isLoading = false, pendingOperationCount = pendingOperations.size)
+        }
     }
 
     fun createItem(name: String, quantity: String) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         val listId = _state.value.selectedListId ?: return@launch
-        addCatalogProduct(name)
-        val tempItem = ShoppingItemDto(nextTempId(), name, quantity, false, localTimestamp())
+        val normalizedName = normalizeFastInput(name) ?: return@launch
+        val normalizedQuantity = quantity.trim()
+        addCatalogProduct(normalizedName)
+        val tempItem = ShoppingItemDto(nextTempId(), normalizedName, normalizedQuantity, false, localTimestamp())
         val operationId = newOperationId()
         applyLocalItem(listId, tempItem)
         runOnlineThenSync(
@@ -319,8 +341,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                     clientOperationId = operationId,
                     listId = listId,
                     request = ItemCreate(
-                        name = name,
-                        quantity = quantity,
+                        name = normalizedName,
+                        quantity = normalizedQuantity,
                         is_checked = false,
                         client_operation_id = operationId,
                         temp_id = tempItem.id.toString()
@@ -328,7 +350,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 )
             },
             offline = {
-                enqueue(PendingOperation("create_item", clientOperationId = operationId, listId = listId, itemId = tempItem.id, tempId = tempItem.id.toString(), name = name, quantity = quantity, isChecked = false))
+                enqueue(PendingOperation("create_item", clientOperationId = operationId, listId = listId, itemId = tempItem.id, tempId = tempItem.id.toString(), name = normalizedName, quantity = normalizedQuantity, isChecked = false))
                 setOfflineMessage("Товар сохранён на телефоне и отправится при синхронизации")
             }
         )
@@ -637,6 +659,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun selectList(listId: Int) {
         saveSelectedListId(listId)
         update { copy(selectedListId = listId, selectedMembers = emptyList(), selectedActivity = emptyList(), inviteUrl = "") }
+    }
+
+    fun setDefaultList(listId: Int) {
+        saveDefaultListId(listId)
+        update { copy(defaultListId = listId, message = "Основной список выбран") }
     }
 
     fun saveThemeMode(themeMode: String) {
@@ -977,6 +1004,10 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         appPreferences.selectedListId = listId
     }
 
+    private fun saveDefaultListId(listId: Int?) {
+        appPreferences.defaultListId = listId
+    }
+
     private fun saveProductCatalog(catalog: List<String>) {
         val cleanedCatalog = catalog
             .map { it.trim() }
@@ -986,4 +1017,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         productCatalogStorage.save(cleanedCatalog)
         _state.value = _state.value.copy(productCatalog = cleanedCatalog)
     }
+}
+
+internal fun normalizeFastInput(value: String): String? {
+    return value.trim().takeIf { it.isNotBlank() }
+}
+
+internal fun chooseStartupListId(
+    lists: List<ShoppingListDto>,
+    selectedListId: Int?,
+    defaultListId: Int?
+): Int? {
+    return lists.firstOrNull { it.id == defaultListId }?.id
+        ?: lists.firstOrNull { it.id == selectedListId }?.id
+        ?: lists.firstOrNull()?.id
 }

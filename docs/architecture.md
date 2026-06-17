@@ -1,6 +1,6 @@
 # Архитектура проекта
 
-Документ актуален для `v1.4.9`.
+Документ актуален для `v1.5.0`.
 
 ## Общая схема
 
@@ -22,7 +22,7 @@
 - `ShoppingViewModel.kt` хранит состояние экрана и вызывает API/storage-слои.
 - `data/ApiClient.kt`, `data/ShoppingApi.kt`, `data/ApiModels.kt` отвечают за HTTP API.
 - `data/local/TokenStorage.kt` хранит токен в `EncryptedSharedPreferences`, переносит старый токен из обычных preferences и очищает токен при выходе.
-- `data/local/AppPreferences.kt` хранит настройки сервера, тему, выбранный список, кеш списков и временные ID.
+- `data/local/AppPreferences.kt` хранит настройки сервера, тему, выбранный список, основной список, кеш списков и временные ID.
 - `data/local/OfflineQueueStorage.kt` хранит JSON offline-очереди.
 - `data/local/ProductCatalogStorage.kt` хранит справочник товаров.
 - `data/local/ServerSettings.kt` хранит модель `ServerSettings`, где `useTestServer` и `customServerUrl` лежат отдельно, а `effectiveServerUrl` вычисляется без потери ручного адреса.
@@ -56,6 +56,12 @@
 5. Если операции нет, backend выполняет действие, сохраняет response и только после этого завершает транзакцию.
 
 Так replay не создает дубликаты списков, товаров или событий истории.
+
+## Fast List UX
+
+Android хранит `defaultListId` локально в `AppPreferences`. При запуске и после синхронизации приложение сначала пытается открыть основной список, затем последний выбранный список, затем первый доступный список.
+
+Быстрое добавление товара работает локально: ввод обрезается по краям, пустые значения не отправляются, Done/Enter на клавиатуре вызывает то же действие, что и кнопка `+`. При недоступном сервере прежняя offline queue сохраняет операцию с `client_operation_id`.
 
 ## Temp ID Mapping
 
