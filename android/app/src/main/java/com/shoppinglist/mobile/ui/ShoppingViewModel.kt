@@ -23,6 +23,7 @@ import com.shoppinglist.mobile.data.local.OfflineQueueStorage
 import com.shoppinglist.mobile.data.local.ProductCatalogStorage
 import com.shoppinglist.mobile.data.local.ServerSettings
 import com.shoppinglist.mobile.data.local.TokenStorage
+import com.shoppinglist.mobile.data.local.normalizeCatalogProducts
 import com.shoppinglist.mobile.data.repository.DiagnosticsRepository
 import com.shoppinglist.mobile.domain.model.DiagnosticsCheckResult
 import com.shoppinglist.mobile.domain.model.DiagnosticsInfo
@@ -134,6 +135,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     private var pendingOperations = loadPendingOperations()
     private var lastDeletedItem: DeletedItemSnapshot? = null
     private var undoDeleteJob: Job? = null
+    private var shouldPreferDefaultList = true
     private val initialToken = tokenStorage.loadToken()
     private val initialServerSettings = appPreferences.loadServerSettings()
     private val _state = MutableStateFlow(
@@ -220,7 +222,8 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             val nextSelected = chooseStartupListId(
                 lists = response.lists,
                 selectedListId = _state.value.selectedListId,
-                defaultListId = _state.value.defaultListId
+                defaultListId = _state.value.defaultListId,
+                preferDefaultList = shouldPreferDefaultList
             )
             val nextDefault = response.lists.firstOrNull { it.id == _state.value.defaultListId }?.id
             cacheLists(response.lists)
@@ -239,6 +242,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             )
             saveSelectedListId(nextSelected)
             saveDefaultListId(nextDefault)
+            shouldPreferDefaultList = false
         }
     }
 
@@ -676,6 +680,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         tokenStorage.clearToken()
         undoDeleteJob?.cancel()
         lastDeletedItem = null
+        shouldPreferDefaultList = true
         update {
             copy(
                 token = null,
@@ -696,6 +701,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         tokenStorage.clearToken()
         undoDeleteJob?.cancel()
         lastDeletedItem = null
+        shouldPreferDefaultList = true
         pendingOperations = emptyList()
         offlineQueueStorage.clear()
         appPreferences.clearCachedSession()
@@ -1009,11 +1015,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun saveProductCatalog(catalog: List<String>) {
-        val cleanedCatalog = catalog
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sortedWith(String.CASE_INSENSITIVE_ORDER)
+        val cleanedCatalog = normalizeCatalogProducts(catalog)
         productCatalogStorage.save(cleanedCatalog)
         _state.value = _state.value.copy(productCatalog = cleanedCatalog)
     }
@@ -1026,9 +1028,12 @@ internal fun normalizeFastInput(value: String): String? {
 internal fun chooseStartupListId(
     lists: List<ShoppingListDto>,
     selectedListId: Int?,
-    defaultListId: Int?
+    defaultListId: Int?,
+    preferDefaultList: Boolean
 ): Int? {
-    return lists.firstOrNull { it.id == defaultListId }?.id
-        ?: lists.firstOrNull { it.id == selectedListId }?.id
+    val preferredListId = if (preferDefaultList) defaultListId else selectedListId
+    val fallbackListId = if (preferDefaultList) selectedListId else defaultListId
+    return lists.firstOrNull { it.id == preferredListId }?.id
+        ?: lists.firstOrNull { it.id == fallbackListId }?.id
         ?: lists.firstOrNull()?.id
 }

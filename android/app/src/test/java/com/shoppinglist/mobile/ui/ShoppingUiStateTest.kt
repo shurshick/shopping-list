@@ -4,6 +4,7 @@ import com.shoppinglist.mobile.data.ActivityLogDto
 import com.shoppinglist.mobile.data.ListMemberDto
 import com.shoppinglist.mobile.data.ShoppingItemDto
 import com.shoppinglist.mobile.data.ShoppingListDto
+import com.shoppinglist.mobile.data.local.normalizeCatalogProducts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -93,7 +94,12 @@ class ShoppingUiStateTest {
             ShoppingListDto(id = 2, name = "Основной", owner_id = 1, updated_at = "now", items = emptyList())
         )
 
-        val selected = chooseStartupListId(lists, selectedListId = 1, defaultListId = 2)
+        val selected = chooseStartupListId(
+            lists,
+            selectedListId = 1,
+            defaultListId = 2,
+            preferDefaultList = true
+        )
 
         assertEquals(2, selected)
     }
@@ -105,8 +111,32 @@ class ShoppingUiStateTest {
             ShoppingListDto(id = 2, name = "Работа", owner_id = 1, updated_at = "now", items = emptyList())
         )
 
-        assertEquals(1, chooseStartupListId(lists, selectedListId = 1, defaultListId = 99))
-        assertEquals(1, chooseStartupListId(lists, selectedListId = 99, defaultListId = 98))
-        assertNull(chooseStartupListId(emptyList(), selectedListId = 1, defaultListId = 2))
+        assertEquals(1, chooseStartupListId(lists, selectedListId = 1, defaultListId = 99, preferDefaultList = true))
+        assertEquals(1, chooseStartupListId(lists, selectedListId = 99, defaultListId = 98, preferDefaultList = true))
+        assertNull(chooseStartupListId(emptyList(), selectedListId = 1, defaultListId = 2, preferDefaultList = true))
+    }
+
+    @Test
+    fun regularSyncKeepsCurrentListInsteadOfSwitchingToDefault() {
+        val lists = listOf(
+            ShoppingListDto(id = 1, name = "Дом", owner_id = 1, updated_at = "now", items = emptyList()),
+            ShoppingListDto(id = 2, name = "Основной", owner_id = 1, updated_at = "now", items = emptyList())
+        )
+
+        val selected = chooseStartupListId(
+            lists,
+            selectedListId = 1,
+            defaultListId = 2,
+            preferDefaultList = false
+        )
+
+        assertEquals(1, selected)
+    }
+
+    @Test
+    fun catalogNormalizationRemovesCaseInsensitiveDuplicates() {
+        val catalog = normalizeCatalogProducts(listOf(" Молоко ", "молоко", "МОЛОКО", "Хлеб", " хлеб "))
+
+        assertEquals(listOf("Молоко", "Хлеб"), catalog)
     }
 }

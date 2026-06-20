@@ -27,8 +27,8 @@ class DiagnosticsInfoTest {
 
     private fun sampleDiagnosticsInfo(): DiagnosticsInfo {
         return DiagnosticsInfo(
-            appVersion = "1.5.0",
-            versionCode = 33,
+            appVersion = "1.5.1",
+            versionCode = 34,
             packageName = "com.shoppinglist.mobile",
             androidVersion = "14",
             themeMode = "dark",
@@ -43,7 +43,7 @@ class DiagnosticsInfoTest {
                 live = DiagnosticsEndpointStatus("health/live", "ok"),
                 ready = DiagnosticsEndpointStatus("health/ready", "ok"),
                 serverConfig = DiagnosticsEndpointStatus("server-config", "ok"),
-                backendVersion = "1.5.0"
+                backendVersion = "1.5.1"
             )
         )
     }
