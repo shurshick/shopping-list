@@ -49,6 +49,12 @@ class AppPreferences(context: Context, private val gson: Gson) {
             preferences.edit().putString("themeMode", value).apply()
         }
 
+    var mergeDuplicateItems: Boolean
+        get() = preferences.getBoolean("mergeDuplicateItems", false)
+        set(value) {
+            preferences.edit().putBoolean("mergeDuplicateItems", value).apply()
+        }
+
     var lastSuccessfulSync: String?
         get() = preferences.getString("lastSuccessfulSync", null)
         set(value) {

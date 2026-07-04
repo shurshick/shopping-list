@@ -49,6 +49,7 @@ data class ShoppingUiState(
     val pendingInviteToken: String? = null,
     val productCatalog: List<String> = emptyList(),
     val themeMode: String = "system",
+    val mergeDuplicateItems: Boolean = false,
     val selectedListId: Int? = null,
     val defaultListId: Int? = null,
     val pendingOperationCount: Int = 0,
@@ -57,10 +58,18 @@ data class ShoppingUiState(
     val lastSuccessfulSync: String? = null,
     val lastSyncAttemptAt: String? = null,
     val lastSyncError: String? = null,
+    val conflicts: List<SyncConflict> = emptyList(),
     val diagnosticsCheckResult: DiagnosticsCheckResult? = null,
     val isCheckingDiagnostics: Boolean = false,
     val message: String? = null,
     val isLoading: Boolean = false
+)
+
+data class SyncConflict(
+    val clientOperationId: String,
+    val itemName: String,
+    val localDescription: String,
+    val serverDescription: String
 )
 
 internal fun ShoppingUiState.clearedForServerChange(): ShoppingUiState {
@@ -80,6 +89,7 @@ internal fun ShoppingUiState.clearedForServerChange(): ShoppingUiState {
         lastSuccessfulSync = null,
         lastSyncAttemptAt = null,
         lastSyncError = null,
+        conflicts = emptyList(),
         diagnosticsCheckResult = null,
         isCheckingDiagnostics = false,
         message = null
@@ -94,7 +104,8 @@ private data class PendingOperation(
     val tempId: String? = null,
     val name: String? = null,
     val quantity: String? = null,
-    val isChecked: Boolean? = null
+    val isChecked: Boolean? = null,
+    val baseUpdatedAt: String? = null
 )
 
 private data class DeletedItemSnapshot(
@@ -147,6 +158,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             lists = appPreferences.loadCachedLists(),
             productCatalog = productCatalogStorage.load(defaultProducts),
             themeMode = appPreferences.themeMode,
+            mergeDuplicateItems = appPreferences.mergeDuplicateItems,
             selectedListId = appPreferences.selectedListId,
             defaultListId = appPreferences.defaultListId,
             pendingOperationCount = pendingOperations.size,
@@ -217,7 +229,18 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             }
         ) {
             val api = api()
-            replayPendingOperations(api, token)
+            val conflicts = replayPendingOperations(api, token)
+            if (conflicts.isNotEmpty()) {
+                update {
+                    copy(
+                        conflicts = conflicts,
+                        pendingOperationCount = pendingOperations.size,
+                        isOffline = false,
+                        lastSyncError = "Есть конфликт изменений"
+                    )
+                }
+                return@runRequest
+            }
             val response = api.sync("Bearer $token")
             val nextSelected = chooseStartupListId(
                 lists = response.lists,
@@ -236,6 +259,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 defaultListId = nextDefault,
                 pendingOperationCount = pendingOperations.size,
                 isOffline = false,
+                conflicts = emptyList(),
                 lastSuccessfulSync = syncedAt,
                 lastSyncError = null,
                 message = null
@@ -252,6 +276,35 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
             appPreferences.lastSyncError = message
             update { copy(lastSyncError = message, message = message) }
             return
+        }
+        sync()
+    }
+
+    fun keepServerConflict(clientOperationId: String) {
+        pendingOperations = pendingOperations.filterNot { it.clientOperationId == clientOperationId }
+        savePendingOperations()
+        update {
+            copy(
+                conflicts = conflicts.filterNot { it.clientOperationId == clientOperationId },
+                pendingOperationCount = pendingOperations.size,
+                lastSyncError = null,
+                message = "Оставлена версия с сервера"
+            )
+        }
+        sync()
+    }
+
+    fun sendLocalConflict(clientOperationId: String) {
+        pendingOperations = pendingOperations.map {
+            if (it.clientOperationId == clientOperationId) it.copy(baseUpdatedAt = null) else it
+        }
+        savePendingOperations()
+        update {
+            copy(
+                conflicts = conflicts.filterNot { it.clientOperationId == clientOperationId },
+                pendingOperationCount = pendingOperations.size,
+                message = "Отправляем вашу версию"
+            )
         }
         sync()
     }
@@ -329,12 +382,22 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun createItem(name: String, quantity: String) = viewModelScope.launch {
+    fun createItem(name: String, quantity: String, mergeDuplicate: Boolean) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         val listId = _state.value.selectedListId ?: return@launch
         val normalizedName = normalizeFastInput(name) ?: return@launch
         val normalizedQuantity = quantity.trim()
         addCatalogProduct(normalizedName)
+        if (mergeDuplicate) {
+            val existingItem = _state.value.lists
+                .firstOrNull { it.id == listId }
+                ?.items
+                ?.firstOrNull { it.name.equals(normalizedName, ignoreCase = true) }
+            if (existingItem != null) {
+                mergeIntoExistingItem(token, listId, existingItem, normalizedQuantity)
+                return@launch
+            }
+        }
         val tempItem = ShoppingItemDto(nextTempId(), normalizedName, normalizedQuantity, false, localTimestamp())
         val operationId = newOperationId()
         applyLocalItem(listId, tempItem)
@@ -363,6 +426,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun toggleItem(itemId: Int, checked: Boolean) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         val listId = findListIdForItem(itemId) ?: return@launch
+        val baseUpdatedAt = findItemSnapshot(itemId)?.item?.updated_at
         applyLocalItemUpdate(itemId, isChecked = checked)
         if (itemId < 0) {
             updateQueuedCreatedItem(itemId, isChecked = checked)
@@ -379,10 +443,46 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 )
             },
             offline = {
-                enqueue(PendingOperation("update_item", clientOperationId = operationId, listId = listId, itemId = itemId, isChecked = checked))
+                enqueue(PendingOperation("update_item", clientOperationId = operationId, listId = listId, itemId = itemId, isChecked = checked, baseUpdatedAt = baseUpdatedAt))
                 setOfflineMessage("Изменение сохранено и отправится при синхронизации")
             }
         )
+    }
+
+    private fun mergeIntoExistingItem(token: String, listId: Int, existingItem: ShoppingItemDto, quantity: String) {
+        val nextQuantity = mergeQuantities(existingItem.quantity, quantity)
+        val operationId = newOperationId()
+        applyLocalItemUpdate(existingItem.id, quantity = nextQuantity, isChecked = false)
+        if (existingItem.id < 0) {
+            updateQueuedCreatedItem(existingItem.id, quantity = nextQuantity, isChecked = false)
+            return
+        }
+        viewModelScope.launch {
+            runOnlineThenSync(
+                online = {
+                    api().updateItem(
+                        authorization = "Bearer $token",
+                        clientOperationId = operationId,
+                        itemId = existingItem.id,
+                        request = ItemUpdate(quantity = nextQuantity, is_checked = false)
+                    )
+                },
+                offline = {
+                    enqueue(
+                        PendingOperation(
+                            "update_item",
+                            clientOperationId = operationId,
+                            listId = listId,
+                            itemId = existingItem.id,
+                            quantity = nextQuantity,
+                            isChecked = false,
+                            baseUpdatedAt = existingItem.updated_at
+                        )
+                    )
+                    setOfflineMessage("Количество будет обновлено при синхронизации")
+                }
+            )
+        }
     }
 
     fun shareList(email: String) = viewModelScope.launch {
@@ -521,6 +621,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
     fun updateItem(itemId: Int, name: String, quantity: String) = viewModelScope.launch {
         val token = _state.value.token ?: return@launch
         val listId = findListIdForItem(itemId) ?: return@launch
+        val baseUpdatedAt = findItemSnapshot(itemId)?.item?.updated_at
         applyLocalItemUpdate(itemId, name = name, quantity = quantity)
         if (itemId < 0) {
             updateQueuedCreatedItem(itemId, name = name, quantity = quantity)
@@ -537,7 +638,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
                 )
             },
             offline = {
-                enqueue(PendingOperation("update_item", clientOperationId = operationId, listId = listId, itemId = itemId, name = name, quantity = quantity))
+                enqueue(PendingOperation("update_item", clientOperationId = operationId, listId = listId, itemId = itemId, name = name, quantity = quantity, baseUpdatedAt = baseUpdatedAt))
                 setOfflineMessage("Изменение товара отправится при синхронизации")
             }
         )
@@ -558,7 +659,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         runOnlineThenSync(
             online = { api().deleteItem("Bearer $token", operationId, itemId) },
             offline = {
-                enqueue(PendingOperation("delete_item", clientOperationId = operationId, listId = snapshot.listId, itemId = itemId))
+                enqueue(PendingOperation("delete_item", clientOperationId = operationId, listId = snapshot.listId, itemId = itemId, baseUpdatedAt = snapshot.item.updated_at))
                 showUndoDelete(message = "Товар удалён. Изменение отправится при синхронизации")
             },
             keepUndo = true
@@ -676,6 +777,11 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         update { copy(themeMode = safeThemeMode) }
     }
 
+    fun setMergeDuplicateItems(value: Boolean) {
+        appPreferences.mergeDuplicateItems = value
+        update { copy(mergeDuplicateItems = value) }
+    }
+
     fun logout() {
         tokenStorage.clearToken()
         undoDeleteJob?.cancel()
@@ -777,12 +883,22 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private suspend fun replayPendingOperations(api: com.shoppinglist.mobile.data.ShoppingApi, token: String) {
+    private suspend fun replayPendingOperations(api: com.shoppinglist.mobile.data.ShoppingApi, token: String): List<SyncConflict> {
         val operations = pendingOperations.map { it.withOperationId() }
-        if (operations.isEmpty()) return
+        if (operations.isEmpty()) return emptyList()
         if (operations != pendingOperations) {
             pendingOperations = operations
             savePendingOperations()
+        }
+        val serverItems = api.sync("Bearer $token")
+            .lists
+            .flatMap { it.items }
+            .associateBy { it.id }
+        val conflicts = operations.mapNotNull { it.findConflict(serverItems[it.itemId]) }
+        if (conflicts.isNotEmpty()) {
+            pendingOperations = operations
+            savePendingOperations()
+            return conflicts
         }
         loop@ for (operation in operations) {
             when (operation.type) {
@@ -850,6 +966,7 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         }
         pendingOperations = emptyList()
         savePendingOperations()
+        return emptyList()
     }
 
     private fun enqueue(operation: PendingOperation) {
@@ -1019,10 +1136,71 @@ class ShoppingViewModel(application: Application) : AndroidViewModel(application
         productCatalogStorage.save(cleanedCatalog)
         _state.value = _state.value.copy(productCatalog = cleanedCatalog)
     }
+
+    private fun PendingOperation.findConflict(serverItem: ShoppingItemDto?): SyncConflict? {
+        if (type !in listOf("update_item", "delete_item")) return null
+        val base = baseUpdatedAt?.takeIf { it.isNotBlank() } ?: return null
+        val currentServerItem = serverItem ?: return null
+        if (currentServerItem.updated_at == base) return null
+        return SyncConflict(
+            clientOperationId = operationId(),
+            itemName = name ?: currentServerItem.name,
+            localDescription = describeLocalChange(this),
+            serverDescription = describeItem(currentServerItem)
+        )
+    }
 }
 
 internal fun normalizeFastInput(value: String): String? {
     return value.trim().takeIf { it.isNotBlank() }
+}
+
+internal fun mergeQuantities(current: String, added: String): String {
+    val first = current.trim()
+    val second = added.trim()
+    if (first.isBlank()) return second
+    if (second.isBlank()) return first
+    val firstNumber = first.toDoubleOrNull()
+    val secondNumber = second.toDoubleOrNull()
+    if (firstNumber != null && secondNumber != null) {
+        return formatQuantityNumber(firstNumber + secondNumber)
+    }
+    val firstPart = splitQuantity(first)
+    val secondPart = splitQuantity(second)
+    if (firstPart != null && secondPart != null && firstPart.second.equals(secondPart.second, ignoreCase = true)) {
+        return "${formatQuantityNumber(firstPart.first + secondPart.first)} ${firstPart.second}".trim()
+    }
+    return "$first + $second"
+}
+
+private fun splitQuantity(value: String): Pair<Double, String>? {
+    val match = Regex("""^(\d+(?:[.,]\d+)?)\s*(.*)$""").find(value) ?: return null
+    val amount = match.groupValues[1].replace(',', '.').toDoubleOrNull() ?: return null
+    val unit = match.groupValues[2].trim()
+    if (unit.isBlank()) return null
+    return amount to unit
+}
+
+private fun formatQuantityNumber(value: Double): String {
+    return if (value % 1.0 == 0.0) value.toInt().toString() else value.toString().trimEnd('0').trimEnd('.')
+}
+
+private fun describeLocalChange(operation: PendingOperation): String {
+    if (operation.type == "delete_item") return "Удалить товар"
+    val parts = buildList {
+        operation.name?.takeIf { it.isNotBlank() }?.let { add(it) }
+        operation.quantity?.takeIf { it.isNotBlank() }?.let { add(it) }
+        operation.isChecked?.let { add(if (it) "куплено" else "купить") }
+    }
+    return parts.joinToString(", ").ifBlank { "Изменение на телефоне" }
+}
+
+private fun describeItem(item: ShoppingItemDto): String {
+    return buildList {
+        add(item.name)
+        item.quantity.takeIf { it.isNotBlank() }?.let { add(it) }
+        add(if (item.is_checked) "куплено" else "купить")
+    }.joinToString(", ")
 }
 
 internal fun chooseStartupListId(

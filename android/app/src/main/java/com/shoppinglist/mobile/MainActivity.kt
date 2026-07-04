@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -100,8 +101,14 @@ import com.shoppinglist.mobile.domain.model.DiagnosticsEndpointStatus
 import com.shoppinglist.mobile.domain.model.DiagnosticsInfo
 import com.shoppinglist.mobile.ui.ShoppingUiState
 import com.shoppinglist.mobile.ui.ShoppingViewModel
+import com.shoppinglist.mobile.ui.SyncConflict
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ShoppingViewModel by viewModels()
@@ -154,6 +161,9 @@ class MainActivity : ComponentActivity() {
                             viewModel::addCatalogProduct,
                             viewModel::removeCatalogProduct,
                             viewModel::saveThemeMode,
+                            viewModel::setMergeDuplicateItems,
+                            viewModel::keepServerConflict,
+                            viewModel::sendLocalConflict,
                             viewModel::logoutForServerChange,
                             viewModel::logout,
                             viewModel::checkDiagnostics,
@@ -262,7 +272,7 @@ private fun ShoppingScreen(
     onSelectList: (Int) -> Unit,
     onSetDefaultList: (Int) -> Unit,
     onCreateList: (String) -> Unit,
-    onCreateItem: (String, String) -> Unit,
+    onCreateItem: (String, String, Boolean) -> Unit,
     onToggleItem: (Int, Boolean) -> Unit,
     onDeleteItem: (Int) -> Unit,
     onShareList: (String) -> Unit,
@@ -282,6 +292,9 @@ private fun ShoppingScreen(
     onAddCatalogProduct: (String) -> Unit,
     onRemoveCatalogProduct: (String) -> Unit,
     onSaveThemeMode: (String) -> Unit,
+    onMergeDuplicateItems: (Boolean) -> Unit,
+    onKeepServerConflict: (String) -> Unit,
+    onSendLocalConflict: (String) -> Unit,
     onChangeServer: () -> Unit,
     onLogout: () -> Unit,
     onCheckDiagnostics: () -> Unit,
@@ -474,8 +487,11 @@ private fun ShoppingScreen(
                     UpdateBanner(
                         updateInfo = updateInfo,
                         onDownload = {
-                            val downloadUrl = updateInfo.apkDownloadUrl ?: updateInfo.releaseUrl
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl)))
+                            scope.launch {
+                                installApkUpdate(context, updateInfo.apkDownloadUrl ?: updateInfo.releaseUrl) { message ->
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         },
                         onDismiss = {
                             scope.launch {
@@ -493,13 +509,15 @@ private fun ShoppingScreen(
                         itemName = itemName,
                         quantity = quantity,
                         catalog = state.productCatalog,
+                        mergeDuplicateItems = state.mergeDuplicateItems,
                         onItemName = { itemName = it },
                         onQuantity = { quantity = it },
+                        onMergeDuplicateItems = onMergeDuplicateItems,
                         onPickSuggestion = { itemName = it },
                         onAdd = {
                             val normalizedItemName = itemName.trim()
                             if (normalizedItemName.isNotBlank()) {
-                                onCreateItem(normalizedItemName, quantity.trim())
+                                onCreateItem(normalizedItemName, quantity.trim(), state.mergeDuplicateItems)
                                 itemName = ""
                                 quantity = ""
                                 itemNameFocusRequester.requestFocus()
@@ -738,6 +756,14 @@ private fun ShoppingScreen(
         )
     }
 
+    if (state.conflicts.isNotEmpty()) {
+        SyncConflictDialog(
+            conflicts = state.conflicts,
+            onKeepServer = onKeepServerConflict,
+            onSendLocal = onSendLocalConflict
+        )
+    }
+
     if (aboutDialogOpen) {
         AboutDialog(updateRepository = updateRepository, onDismiss = { aboutDialogOpen = false })
     }
@@ -794,6 +820,40 @@ private fun ListSectionHeader(title: String) {
 }
 
 @Composable
+private fun SyncConflictDialog(
+    conflicts: List<SyncConflict>,
+    onKeepServer: (String) -> Unit,
+    onSendLocal: (String) -> Unit
+) {
+    val conflict = conflicts.first()
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Конфликт изменений") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Этот товар изменён на двух телефонах.")
+                DiagnosticsLine("Товар", conflict.itemName)
+                DiagnosticsLine("На этом телефоне", conflict.localDescription)
+                DiagnosticsLine("На сервере", conflict.serverDescription)
+                if (conflicts.size > 1) {
+                    Text("Осталось конфликтов: ${conflicts.size}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onSendLocal(conflict.clientOperationId) }) {
+                Text("Отправить моё")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onKeepServer(conflict.clientOperationId) }) {
+                Text("Оставить сервер")
+            }
+        }
+    )
+}
+
+@Composable
 private fun EmptyStateCard(title: String, subtitle: String) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Column(
@@ -838,6 +898,16 @@ private fun SyncStatusCard(
     lastSuccessfulSync: String?,
     onSync: () -> Unit
 ) {
+    val statusText = when {
+        pendingOperationCount > 0 -> "Ожидает отправки"
+        isOffline -> "Сервер недоступен"
+        else -> "Синхронизировано"
+    }
+    val detailText = if (pendingOperationCount > 0) {
+        "$pendingOperationCount действий"
+    } else {
+        lastSuccessfulSync?.let { formatDateTime(it) }
+    }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -848,20 +918,13 @@ private fun SyncStatusCard(
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    if (isOffline) "Сервер недоступен" else "Синхронизация активна",
+                    statusText,
                     style = MaterialTheme.typography.labelLarge,
                     color = if (isOffline) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 )
-                if (pendingOperationCount > 0) {
+                detailText?.let {
                     Text(
-                        "Ожидает отправки: $pendingOperationCount",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                lastSuccessfulSync?.let {
-                    Text(
-                        "Последняя синхронизация: ${formatDateTime(it)}",
+                        it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -921,8 +984,10 @@ private fun ItemCreateCard(
     itemName: String,
     quantity: String,
     catalog: List<String>,
+    mergeDuplicateItems: Boolean,
     onItemName: (String) -> Unit,
     onQuantity: (String) -> Unit,
+    onMergeDuplicateItems: (Boolean) -> Unit,
     onPickSuggestion: (String) -> Unit,
     onAdd: () -> Unit,
     focusRequester: FocusRequester,
@@ -985,6 +1050,18 @@ private fun ItemCreateCard(
                         }
                     }
                 }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onMergeDuplicateItems(!mergeDuplicateItems) }
+            ) {
+                Checkbox(
+                    checked = mergeDuplicateItems,
+                    onCheckedChange = onMergeDuplicateItems
+                )
+                Text("Объединять одинаковые товары")
             }
         }
     }
@@ -1763,7 +1840,8 @@ private fun AboutDialog(updateRepository: UpdateRepository, onDismiss: () -> Uni
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Список покупок", style = MaterialTheme.typography.titleMedium)
                 Text("Версия ${BuildConfig.VERSION_NAME}")
-                Text("© 2026 shurshick")
+                Text("© 2026 Александр Коваленко")
+                Text("shurshick@bk.ru")
                 OutlinedTextField(
                     projectUrl,
                     {},
@@ -1798,7 +1876,11 @@ private fun AboutDialog(updateRepository: UpdateRepository, onDismiss: () -> Uni
                 updateUrl?.let { apkUrl ->
                     Button(
                         onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)))
+                            scope.launch {
+                                installApkUpdate(context, apkUrl) { message ->
+                                    updateStatus = message
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1874,4 +1956,46 @@ private fun CatalogDialog(
             Button(onClick = onDismiss) { Text("Готово") }
         }
     )
+}
+
+private suspend fun installApkUpdate(context: Context, apkUrl: String, onStatus: (String) -> Unit) {
+    if (apkUrl.isBlank()) {
+        onStatus("Файл обновления не найден")
+        return
+    }
+    runCatching {
+        onStatus("Скачиваем обновление")
+        val apkFile = withContext(Dispatchers.IO) {
+            val connection = (URL(apkUrl).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10_000
+                readTimeout = 30_000
+                requestMethod = "GET"
+            }
+            try {
+                if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
+                val outputDir = File(context.cacheDir, "updates").also { it.mkdirs() }
+                val outputFile = File(outputDir, "shopping-list-update.apk")
+                connection.inputStream.use { input ->
+                    outputFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                outputFile
+            } finally {
+                connection.disconnect()
+            }
+        }
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${BuildConfig.APPLICATION_ID}.fileprovider",
+            apkFile
+        )
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(intent)
+    }.onFailure {
+        onStatus("Не удалось открыть обновление")
+    }
 }
