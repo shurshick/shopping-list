@@ -4,6 +4,7 @@
 
 Один тег GitHub Release = один файл:
 
+- `v1.5.3` -> `docs/releases/v1.5.3.md`
 - `v1.5.2` -> `docs/releases/v1.5.2.md`
 - `v1.5.1` -> `docs/releases/v1.5.1.md`
 - `v1.5.0` -> `docs/releases/v1.5.0.md`

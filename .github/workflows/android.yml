@@ -27,6 +27,6 @@ jobs:
         working-directory: android
         run: chmod +x gradlew
 
-      - name: Собрать Android debug APK
+      - name: Проверить тесты, lint и собрать Android debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.database import SessionLocal
 from app.models import ListInvite, ShoppingItem, User
@@ -118,7 +118,7 @@ def test_expired_invite_cannot_be_accepted(client):
 
     with SessionLocal() as db:
         row = db.query(ListInvite).filter_by(token=invite["token"]).one()
-        row.expires_at = datetime.utcnow() - timedelta(hours=1)
+        row.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
         db.commit()
 
     response = client.post(f"/invites/{invite['token']}/accept", headers=auth(user_token))

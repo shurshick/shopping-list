@@ -1,6 +1,4 @@
 import os
-import os
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
@@ -15,6 +13,7 @@ from ..security import get_current_user, hash_password
 from ..services.diagnostics_service import APP_START_TIME, recent_events, record_event, uptime_seconds
 from ..services.migration_service import migration_status
 from ..setup import get_server_settings
+from ..time_utils import utc_now
 from .api import APP_VERSION
 
 
@@ -63,7 +62,7 @@ def db_ping(db: Session) -> str:
 
 @router.get("/health/live")
 def health_live():
-    return {"status": "ok", "version": APP_VERSION, "timestamp": datetime.utcnow()}
+    return {"status": "ok", "version": APP_VERSION, "timestamp": utc_now()}
 
 
 @router.get("/health/ready")
@@ -76,7 +75,7 @@ def health_ready(db: Session = Depends(get_db)):
     return {
         "status": "ok",
         "version": APP_VERSION,
-        "timestamp": datetime.utcnow(),
+        "timestamp": utc_now(),
         "database": db_status,
         "migration": migrations["status"],
     }
@@ -87,13 +86,13 @@ def health_db(db: Session = Depends(get_db)):
     try:
         db_ping(db)
     except Exception:
-        return {"status": "error", "version": APP_VERSION, "timestamp": datetime.utcnow()}
-    return {"status": "ok", "version": APP_VERSION, "timestamp": datetime.utcnow()}
+        return {"status": "error", "version": APP_VERSION, "timestamp": utc_now()}
+    return {"status": "ok", "version": APP_VERSION, "timestamp": utc_now()}
 
 
 @router.get("/metrics")
 def metrics(db: Session = Depends(get_db)):
-    now = datetime.utcnow()
+    now = utc_now()
     return {
         "version": APP_VERSION,
         "users_total": count_or_zero(db, select(func.count(User.id))),
@@ -128,7 +127,7 @@ def admin_system(current_user: User = Depends(get_current_user), db: Session = D
         "rate_limit": "in-memory",
         "docker_image_version": os.getenv("IMAGE_VERSION", APP_VERSION),
         "app_start_time": APP_START_TIME,
-        "server_time": datetime.utcnow(),
+        "server_time": utc_now(),
     }
 
 
@@ -315,7 +314,7 @@ def archive_list(list_id: int, current_user: User = Depends(get_current_user), d
     require_admin(current_user)
     shopping_list = get_target_list(db, list_id)
     if shopping_list.archived_at is None:
-        shopping_list.archived_at = datetime.utcnow()
+        shopping_list.archived_at = utc_now()
     record_event("list archived", f"list_id={shopping_list.id}", "warning")
     db.commit()
     return {"status": "ok", "list_id": shopping_list.id, "archived_at": shopping_list.archived_at}
@@ -340,7 +339,7 @@ def admin_invites(
 ):
     require_admin(current_user)
     invites = db.scalars(select(ListInvite).order_by(ListInvite.created_at.desc(), ListInvite.id.desc())).all()
-    now = datetime.utcnow()
+    now = utc_now()
     normalized_query = query.strip().lower()
     if normalized_query:
         invites = [
@@ -384,7 +383,7 @@ def revoke_invite(invite_id: int, current_user: User = Depends(get_current_user)
     if invite is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Приглашение не найдено")
     if invite.revoked_at is None:
-        invite.revoked_at = datetime.utcnow()
+        invite.revoked_at = utc_now()
     record_event("invite revoked", f"invite_id={invite.id}", "warning")
     db.commit()
     return {"status": "ok", "invite_id": invite.id, "revoked_at": invite.revoked_at}

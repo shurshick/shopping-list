@@ -1,6 +1,6 @@
 import secrets
 from html import escape
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
@@ -32,9 +32,10 @@ from ..services.diagnostics_service import record_event
 from ..services.idempotency_service import remember_client_operation, replay_client_operation
 from ..services.migration_service import current_revision
 from ..setup import get_server_settings
+from ..time_utils import utc_now
 
 
-APP_VERSION = "1.5.2"
+APP_VERSION = "1.5.3"
 
 router = APIRouter()
 
@@ -73,7 +74,7 @@ def update_user_client_info(
     user.last_client_version_code = version_code
     user.last_client_platform = platform
     user.last_client_os_version = os_version
-    user.last_client_seen_at = datetime.utcnow()
+    user.last_client_seen_at = utc_now()
     db.commit()
 
 
@@ -87,106 +88,194 @@ def render_admin_page() -> str:
         <title>Администрирование списка покупок</title>
         <style>
           :root {{
-            color-scheme: light;
+            color-scheme: dark;
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --background: #111014;
+            --surface: #1c1b20;
+            --surface-high: #27242c;
+            --surface-highest: #322f37;
+            --outline: #49454f;
+            --text: #e8e1eb;
+            --muted: #cac4d0;
+            --primary: #d0bcff;
+            --on-primary: #381e72;
+            --primary-container: #4f378b;
+            --secondary: #b8ccc6;
+            --success: #a8d5ba;
+            --warning: #f2cb81;
+            --danger: #ffb4ab;
           }}
-          body {{ margin: 0; background: #f6f7f9; color: #1f2933; }}
-          main {{ max-width: 1180px; margin: 0 auto; padding: 24px 16px; }}
-          section {{
-            background: #ffffff;
-            border: 1px solid #dde3ea;
+          * {{ box-sizing: border-box; }}
+          body {{ margin: 0; background: var(--background); color: var(--text); }}
+          main {{ max-width: 1280px; margin: 0 auto; padding: 24px 20px 48px; }}
+          section {{ margin-bottom: 28px; }}
+          .login-shell {{
+            max-width: 720px;
+            margin: 32px auto 28px;
+            padding: 28px;
+            border: 1px solid var(--outline);
             border-radius: 8px;
-            padding: 24px;
-            margin-bottom: 18px;
+            background: var(--surface);
           }}
-          h1 {{ margin: 0 0 8px; font-size: 30px; }}
-          h2 {{ margin: 0 0 14px; font-size: 20px; }}
-          p {{ margin: 0 0 18px; color: #52616f; line-height: 1.5; }}
-          label {{ display: block; margin: 14px 0 6px; font-weight: 650; }}
-          input {{
-            box-sizing: border-box;
+          .authenticated .login-shell {{ max-width: none; margin: 0 0 24px; padding: 20px 24px; }}
+          .authenticated #login-form, .authenticated .login-copy {{ display: none; }}
+          #clear-token {{ display: none; }}
+          .authenticated #clear-token {{ display: inline-flex; }}
+          .title-row {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; }}
+          .eyebrow {{ color: var(--primary); font-size: 13px; font-weight: 750; text-transform: uppercase; }}
+          .product-mark {{
+            display: grid;
+            place-items: center;
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            background: var(--primary-container);
+            color: #efe7ff;
+            font-size: 18px;
+            font-weight: 800;
+          }}
+          h1 {{ margin: 4px 0 8px; font-size: 30px; letter-spacing: 0; }}
+          h2 {{ margin: 0 0 16px; font-size: 22px; letter-spacing: 0; }}
+          h3 {{ margin: 0 0 14px; font-size: 20px; }}
+          h4 {{ margin: 22px 0 10px; }}
+          p {{ margin: 0 0 18px; color: var(--muted); line-height: 1.5; }}
+          label {{ display: block; margin: 14px 0 6px; color: var(--muted); font-size: 14px; font-weight: 650; }}
+          input, select {{
             width: 100%;
-            min-height: 44px;
-            border: 1px solid #b8c4d0;
+            min-height: 48px;
+            border: 1px solid var(--outline);
             border-radius: 6px;
             padding: 10px 12px;
+            background: var(--surface-high);
+            color: var(--text);
             font: inherit;
+            outline: none;
           }}
-          button {{
+          input:focus, select:focus {{ border-color: var(--primary); box-shadow: 0 0 0 2px rgba(208, 188, 255, .18); }}
+          input::placeholder {{ color: #938f99; }}
+          button, .button-link {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             min-height: 44px;
-            border: 0;
-            border-radius: 6px;
-            background: #2364aa;
-            color: white;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: var(--primary);
+            color: var(--on-primary);
             padding: 0 18px;
             font: inherit;
-            font-weight: 700;
+            font-weight: 750;
+            text-decoration: none;
             cursor: pointer;
           }}
-          button.secondary {{ background: #e8eef5; color: #1f2933; }}
-          button.secondary.active {{ background: #1f2933; color: #ffffff; }}
+          button:hover, .button-link:hover {{ filter: brightness(1.06); }}
+          button:focus-visible, .button-link:focus-visible {{ outline: 3px solid rgba(208, 188, 255, .45); outline-offset: 2px; }}
+          button.secondary, .button-link.secondary {{ background: var(--surface-high); border-color: var(--outline); color: var(--text); }}
+          button.secondary.active {{ background: var(--primary-container); border-color: var(--primary); color: #f1e9ff; }}
+          button.danger {{ background: #5f2523; border-color: #8c3b36; color: var(--danger); }}
+          button.compact {{ min-height: 38px; padding: 0 12px; font-size: 14px; }}
           .actions {{ display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }}
           .toolbar {{ display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }}
-          .admin-nav {{ position: sticky; top: 0; z-index: 2; background: #ffffff; border: 1px solid #dde3ea; border-radius: 8px; padding: 10px; margin-bottom: 18px; }}
-          .filters {{ display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) minmax(160px, 220px) auto; gap: 10px; align-items: end; margin: 12px 0 14px; }}
-          .filters label {{ margin: 0 0 4px; font-size: 13px; color: #52616f; }}
-          select {{
-            box-sizing: border-box;
-            width: 100%;
-            min-height: 44px;
-            border: 1px solid #b8c4d0;
-            border-radius: 6px;
-            padding: 10px 12px;
-            font: inherit;
-            background: #ffffff;
+          .admin-nav {{
+            position: sticky;
+            top: 8px;
+            z-index: 2;
+            display: grid;
+            grid-template-columns: repeat(7, minmax(112px, 1fr));
+            padding: 8px;
+            margin-bottom: 20px;
+            border: 1px solid var(--outline);
+            border-radius: 8px;
+            background: rgba(28, 27, 32, .96);
+            backdrop-filter: blur(12px);
           }}
-          .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }}
-          .card {{ border: 1px solid #e1e7ef; border-radius: 8px; padding: 16px; background: #fbfcfe; }}
-          .label {{ color: #65758b; font-size: 13px; margin-bottom: 6px; }}
-          .value {{ font-size: 24px; font-weight: 750; overflow-wrap: anywhere; }}
-          .small .value {{ font-size: 16px; font-weight: 650; }}
-          table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
-          .admin-table {{ width: 100%; min-width: 980px; border-collapse: collapse; margin-top: 12px; }}
-          th, td {{ border-bottom: 1px solid #e1e7ef; padding: 10px 8px; text-align: left; vertical-align: top; }}
-          th {{ color: #52616f; font-size: 13px; font-weight: 750; }}
+          .admin-nav button {{ min-height: 52px; padding: 0 10px; }}
+          .filters {{
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) minmax(160px, 220px) auto;
+            gap: 10px;
+            align-items: end;
+            margin: 12px 0 16px;
+            padding: 14px;
+            border: 1px solid var(--outline);
+            border-radius: 8px;
+            background: var(--surface);
+          }}
+          .filters label {{ margin: 0 0 5px; }}
+          .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }}
+          .card {{
+            min-height: 112px;
+            border: 1px solid var(--outline);
+            border-radius: 8px;
+            padding: 16px;
+            background: var(--surface);
+          }}
+          .card:nth-child(3n+2) {{ background: #192321; border-color: #334844; }}
+          .label {{ color: var(--muted); font-size: 13px; margin-bottom: 8px; }}
+          .value {{ font-size: 26px; font-weight: 750; overflow-wrap: anywhere; }}
+          .small .value {{ font-size: 16px; font-weight: 650; line-height: 1.4; }}
+          .table-wrap {{ overflow-x: auto; border: 1px solid var(--outline); border-radius: 8px; background: var(--surface); }}
+          table, .admin-table {{ width: 100%; min-width: 980px; border-collapse: collapse; margin: 0; }}
+          th, td {{ border-bottom: 1px solid var(--outline); padding: 12px 10px; text-align: left; vertical-align: top; }}
+          tr:last-child td {{ border-bottom: 0; }}
+          tbody tr:hover {{ background: rgba(208, 188, 255, .05); }}
+          th {{ color: var(--muted); font-size: 12px; font-weight: 750; text-transform: uppercase; }}
           td {{ overflow-wrap: anywhere; }}
-          .table-wrap {{ overflow-x: auto; }}
           .admin-actions {{ display: flex; gap: 8px; align-items: center; flex-wrap: nowrap; }}
           .admin-actions button {{ white-space: nowrap; }}
-          .badge {{ display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 999px; background: #eef2f6; color: #344054; font-weight: 700; font-size: 13px; }}
-          .badge.ok {{ background: #e7f5ec; color: #14532d; }}
-          .badge.warn {{ background: #fff4d6; color: #7a4b00; }}
-          .badge.error {{ background: #fdecec; color: #8a1f17; }}
-          pre {{ background: #101828; color: #eef2f6; border-radius: 8px; padding: 16px; overflow: auto; }}
-          button.danger {{ background: #b42318; }}
-          button.compact {{ min-height: 36px; padding: 0 12px; font-size: 14px; }}
-          .message {{
-            display: none;
-            margin-bottom: 16px;
-            padding: 12px;
-            border-radius: 6px;
-            background: #eef2f6;
-            color: #1f2933;
-          }}
-          .message.error {{ background: #fdecec; color: #8a1f17; }}
-          .message.ok {{ background: #e7f5ec; color: #14532d; }}
+          .badge {{ display: inline-flex; align-items: center; min-height: 26px; padding: 0 9px; border-radius: 999px; background: var(--surface-highest); color: var(--muted); font-weight: 700; font-size: 12px; }}
+          .badge.ok {{ background: #1d3a2a; color: var(--success); }}
+          .badge.warn {{ background: #453819; color: var(--warning); }}
+          .badge.error {{ background: #4b2524; color: var(--danger); }}
+          pre {{ background: #0b0b0e; color: #e3dde7; border: 1px solid var(--outline); border-radius: 8px; padding: 16px; overflow: auto; }}
+          .message {{ display: none; margin-bottom: 16px; padding: 12px 14px; border: 1px solid var(--outline); border-radius: 8px; background: var(--surface-high); color: var(--text); }}
+          .message.error {{ background: #4b2524; border-color: #8c3b36; color: var(--danger); }}
+          .message.ok {{ background: #1d3a2a; border-color: #37664a; color: var(--success); }}
           .hidden {{ display: none; }}
-          code {{ background: #eef2f6; padding: 2px 5px; border-radius: 4px; }}
+          code {{ background: var(--surface-highest); padding: 2px 5px; border-radius: 4px; }}
+          @media (max-width: 900px) {{
+            .admin-nav {{ grid-template-columns: repeat(4, minmax(120px, 1fr)); }}
+            .filters {{ grid-template-columns: 1fr 1fr; }}
+          }}
           @media (max-width: 720px) {{
-            main {{ padding: 12px; }}
-            section {{ padding: 16px; }}
+            main {{ padding: 12px 12px 32px; }}
+            .login-shell, .authenticated .login-shell {{ margin: 0 0 20px; padding: 18px; }}
             h1 {{ font-size: 24px; }}
-            .filters {{ grid-template-columns: 1fr; }}
-            .admin-nav button, .toolbar button {{ flex: 1 1 140px; }}
+            h2 {{ font-size: 20px; }}
+            .product-mark {{ width: 42px; height: 42px; }}
+            .admin-nav {{ position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+            .filters {{ grid-template-columns: 1fr; padding: 12px; }}
+            .filters > div:empty {{ display: none; }}
+            .actions > button, .actions > .button-link {{ flex: 1 1 150px; }}
+            .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+            .card {{ min-height: 104px; padding: 14px; }}
+            .value {{ font-size: 22px; }}
+            .table-wrap {{ overflow: visible; border: 0; background: transparent; }}
+            .admin-table {{ min-width: 0; }}
+            .admin-table thead {{ display: none; }}
+            .admin-table tbody, .admin-table tr, .admin-table td {{ display: block; width: 100%; }}
+            .admin-table tr {{ margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--outline); border-radius: 8px; background: var(--surface); }}
+            .admin-table td {{ display: grid; grid-template-columns: minmax(108px, 38%) 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--outline); }}
+            .admin-table td:last-child {{ border-bottom: 0; }}
+            .admin-table td::before {{ content: attr(data-label); color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }}
             .admin-actions {{ flex-wrap: wrap; }}
+          }}
+          @media (max-width: 420px) {{
+            .grid {{ grid-template-columns: 1fr; }}
           }}
         </style>
       </head>
       <body>
         <main>
-          <section>
-            <h1>Администрирование списка покупок</h1>
-            <p>Войдите под администратором, чтобы посмотреть состояние сервера, базы данных и основные счётчики.</p>
+          <section id="login-section" class="login-shell">
+            <div class="title-row">
+              <div>
+                <div class="eyebrow">Список покупок</div>
+                <h1>Администрирование</h1>
+              </div>
+              <div class="product-mark" aria-hidden="true">SL</div>
+            </div>
+            <p class="login-copy">Войдите под администратором для управления сервером и пользователями.</p>
             <div id="message" class="message"></div>
             <form id="login-form">
               <label for="email">Email администратора</label>
@@ -206,8 +295,8 @@ def render_admin_page() -> str:
             <div class="actions">
               <button type="button" id="refresh">Обновить</button>
               <button type="button" class="secondary" id="clear-activity">Очистить историю</button>
-              <a href="/docs"><button type="button" class="secondary">Открыть Swagger</button></a>
-              <a href="/setup"><button type="button" class="secondary">Настройки сервера</button></a>
+               <a class="button-link secondary" href="/docs">Открыть Swagger</a>
+               <a class="button-link secondary" href="/setup">Настройки сервера</a>
             </div>
           </section>
 
@@ -253,8 +342,9 @@ def render_admin_page() -> str:
             return date.toLocaleString("ru-RU");
           }}
 
-          function card(label, value, small = false) {{
-            return `<div class="card${{small ? " small" : ""}}"><div class="label">${{label}}</div><div class="value">${{value}}</div></div>`;
+          function card(label, value, small = false, trustedHtml = false) {{
+            const renderedValue = trustedHtml ? String(value ?? "") : escapeHtml(value);
+            return `<div class="card${{small ? " small" : ""}}"><div class="label">${{escapeHtml(label)}}</div><div class="value">${{renderedValue}}</div></div>`;
           }}
 
           function escapeHtml(value) {{
@@ -322,16 +412,16 @@ def render_admin_page() -> str:
           function renderUsers(data, filters = {{}}) {{
             const rows = data.users.map((user) => `
               <tr>
-                <td>${{escapeHtml(user.email)}}</td>
-                <td><span class="badge${{user.is_admin ? " warn" : ""}}">${{user.is_admin ? "да" : "нет"}}</span></td>
-                <td><span class="badge${{user.is_active ? " ok" : " error"}}">${{user.is_active ? "активен" : "отключен"}}</span></td>
-                <td>${{escapeHtml(formatDate(user.created_at))}}</td>
-                <td>${{escapeHtml(formatDate(user.last_login_at))}}</td>
-                <td>${{escapeHtml([user.last_client_app, user.last_client_version, user.last_client_version_code].filter(Boolean).join(" ")) || "—"}}</td>
-                <td>${{escapeHtml([user.last_client_platform, user.last_client_os_version].filter(Boolean).join(" ")) || "—"}}</td>
-                <td>${{escapeHtml(formatDate(user.last_client_seen_at))}}</td>
-                <td>${{user.lists_count}}</td>
-                <td>
+                <td data-label="Email">${{escapeHtml(user.email)}}</td>
+                <td data-label="Admin"><span class="badge${{user.is_admin ? " warn" : ""}}">${{user.is_admin ? "да" : "нет"}}</span></td>
+                <td data-label="Статус"><span class="badge${{user.is_active ? " ok" : " error"}}">${{user.is_active ? "активен" : "отключен"}}</span></td>
+                <td data-label="Создан">${{escapeHtml(formatDate(user.created_at))}}</td>
+                <td data-label="Последний вход">${{escapeHtml(formatDate(user.last_login_at))}}</td>
+                <td data-label="Версия приложения">${{escapeHtml([user.last_client_app, user.last_client_version, user.last_client_version_code].filter(Boolean).join(" ")) || "—"}}</td>
+                <td data-label="Платформа">${{escapeHtml([user.last_client_platform, user.last_client_os_version].filter(Boolean).join(" ")) || "—"}}</td>
+                <td data-label="Последний запуск">${{escapeHtml(formatDate(user.last_client_seen_at))}}</td>
+                <td data-label="Списков">${{user.lists_count}}</td>
+                <td data-label="Действия">
                   <div class="admin-actions">
                   <button class="compact secondary" data-user-action="${{user.is_active ? "disable" : "enable"}}" data-user-id="${{user.id}}">
                     ${{user.is_active ? "Отключить" : "Включить"}}
@@ -369,14 +459,14 @@ def render_admin_page() -> str:
           function renderLists(data, filters = {{}}) {{
             const rows = data.lists.map((item) => `
               <tr>
-                <td>${{item.id}}</td>
-                <td>${{escapeHtml(item.name)}}</td>
-                <td>${{escapeHtml(item.owner_email || item.owner_id)}}</td>
-                <td>${{item.items_count}}</td>
-                <td>${{item.members_count}}</td>
-                <td><span class="badge${{item.is_archived ? " warn" : " ok"}}">${{item.is_archived ? "архив" : "активен"}}</span></td>
-                <td>${{escapeHtml(formatDate(item.updated_at))}}</td>
-                <td>
+                <td data-label="ID">${{item.id}}</td>
+                <td data-label="Название">${{escapeHtml(item.name)}}</td>
+                <td data-label="Владелец">${{escapeHtml(item.owner_email || item.owner_id)}}</td>
+                <td data-label="Товаров">${{item.items_count}}</td>
+                <td data-label="Участников">${{item.members_count}}</td>
+                <td data-label="Статус"><span class="badge${{item.is_archived ? " warn" : " ok"}}">${{item.is_archived ? "архив" : "активен"}}</span></td>
+                <td data-label="Обновлён">${{escapeHtml(formatDate(item.updated_at))}}</td>
+                <td data-label="Действия">
                   <div class="admin-actions">
                   <button class="compact secondary" data-list-action="details" data-list-id="${{item.id}}">Детали</button>
                   <button class="compact secondary" data-list-action="${{item.is_archived ? "restore" : "archive"}}" data-list-id="${{item.id}}">
@@ -408,14 +498,14 @@ def render_admin_page() -> str:
           function renderInvites(data, filters = {{}}) {{
             const rows = data.invites.map((invite) => `
               <tr>
-                <td>${{escapeHtml(invite.list_name || invite.list_id)}} <span class="label">#${{invite.list_id}}</span></td>
-                <td>${{escapeHtml(invite.created_by || "")}}</td>
-                <td>${{escapeHtml(invite.token_preview)}}</td>
-                <td>${{escapeHtml(formatDate(invite.created_at))}}</td>
-                <td>${{escapeHtml(formatDate(invite.expires_at))}}</td>
-                <td>${{escapeHtml(formatDate(invite.used_at))}}</td>
-                <td>${{escapeHtml(formatDate(invite.revoked_at))}}</td>
-                <td>
+                <td data-label="Список">${{escapeHtml(invite.list_name || invite.list_id)}} <span class="label">#${{invite.list_id}}</span></td>
+                <td data-label="Создал">${{escapeHtml(invite.created_by || "")}}</td>
+                <td data-label="Token">${{escapeHtml(invite.token_preview)}}</td>
+                <td data-label="Создано">${{escapeHtml(formatDate(invite.created_at))}}</td>
+                <td data-label="Истекает">${{escapeHtml(formatDate(invite.expires_at))}}</td>
+                <td data-label="Использовано">${{escapeHtml(formatDate(invite.used_at))}}</td>
+                <td data-label="Отозвано">${{escapeHtml(formatDate(invite.revoked_at))}}</td>
+                <td data-label="Действия">
                   <div class="admin-actions">
                     ${{invite.used_at || invite.revoked_at ? "" : `<button class="compact danger" data-invite-action="revoke" data-invite-id="${{invite.id}}">Отозвать</button>`}}
                   </div>
@@ -449,13 +539,13 @@ def render_admin_page() -> str:
               <h3>Система</h3>
               <div class="grid">
                 ${{card("Backend version", data.version, true)}}
-                ${{card("База данных", data.database === "ok" ? '<span class="badge ok">доступна</span>' : '<span class="badge error">ошибка</span>', true)}}
+                ${{card("База данных", data.database === "ok" ? '<span class="badge ok">доступна</span>' : '<span class="badge error">ошибка</span>', true, true)}}
                 ${{card("Current revision", migration.current || "нет данных", true)}}
                 ${{card("Head revision", migration.head || "нет данных", true)}}
-                ${{card("Migration status", `<span class="badge ${{migration.status === "up-to-date" ? "ok" : "warn"}}">${{escapeHtml(migration.status || "unknown")}}</span>`, true)}}
+                ${{card("Migration status", `<span class="badge ${{migration.status === "up-to-date" ? "ok" : "warn"}}">${{escapeHtml(migration.status || "unknown")}}</span>`, true, true)}}
                 ${{card("Uptime", `${{data.uptime_seconds}} сек.`, true)}}
                 ${{card("Server time", formatDate(data.server_time), true)}}
-                ${{card("Регистрация", data.registration_enabled ? '<span class="badge ok">разрешена</span>' : '<span class="badge warn">отключена</span>', true)}}
+                ${{card("Регистрация", data.registration_enabled ? '<span class="badge ok">разрешена</span>' : '<span class="badge warn">отключена</span>', true, true)}}
                 ${{card("Rate limit", data.rate_limit || "нет данных", true)}}
                 ${{card("Окружение", data.environment || "production", true)}}
               </div>`;
@@ -469,10 +559,10 @@ def render_admin_page() -> str:
             const events = data.events || [];
             const rows = events.map((event) => `
               <tr>
-                <td>${{escapeHtml(formatDate(event.timestamp))}}</td>
-                <td><span class="badge${{event.level === "error" ? " error" : event.level === "warning" ? " warn" : " ok"}}">${{escapeHtml(event.level || "info")}}</span></td>
-                <td>${{escapeHtml(event.event || "")}}</td>
-                <td>${{escapeHtml(event.details || "")}}</td>
+                <td data-label="Время">${{escapeHtml(formatDate(event.timestamp))}}</td>
+                <td data-label="Уровень"><span class="badge${{event.level === "error" ? " error" : event.level === "warning" ? " warn" : " ok"}}">${{escapeHtml(event.level || "info")}}</span></td>
+                <td data-label="Событие">${{escapeHtml(event.event || "")}}</td>
+                <td data-label="Детали">${{escapeHtml(event.details || "")}}</td>
               </tr>`).join("");
             opsPanel.innerHTML = `
               <h3>Логи</h3>
@@ -560,6 +650,7 @@ def render_admin_page() -> str:
           async function loadStatus() {{
             const token = localStorage.getItem(tokenKey);
             if (!token) {{
+              document.body.classList.remove("authenticated");
               statusSection.classList.add("hidden");
               opsSection.classList.add("hidden");
               return;
@@ -569,6 +660,7 @@ def render_admin_page() -> str:
             }});
             if (response.status === 401 || response.status === 403) {{
               localStorage.removeItem(tokenKey);
+              document.body.classList.remove("authenticated");
               statusSection.classList.add("hidden");
               opsSection.classList.add("hidden");
               showMessage("Нужно войти под администратором.", "error");
@@ -579,6 +671,7 @@ def render_admin_page() -> str:
               return;
             }}
             renderStatus(await response.json());
+            document.body.classList.add("authenticated");
             opsSection.classList.remove("hidden");
             showMessage("Статус обновлён.", "ok");
           }}
@@ -711,6 +804,7 @@ def render_admin_page() -> str:
           }});
           clearTokenButton.addEventListener("click", () => {{
             localStorage.removeItem(tokenKey);
+            document.body.classList.remove("authenticated");
             statusSection.classList.add("hidden");
             opsSection.classList.add("hidden");
             showMessage("Вы вышли из админ-панели.", "ok");
@@ -773,7 +867,7 @@ def add_member_if_missing(db: Session, list_id: int, user_id: int) -> None:
 
 
 def invite_is_expired(invite: ListInvite) -> bool:
-    return invite.expires_at is not None and invite.expires_at < datetime.utcnow()
+    return invite.expires_at is not None and invite.expires_at < utc_now()
 
 
 def current_migration() -> str | None:
@@ -814,7 +908,7 @@ def health(db: Session = Depends(get_db)):
         "version": APP_VERSION,
         "database": "ok",
         "migration": current_migration(),
-        "server_time": datetime.utcnow(),
+        "server_time": utc_now(),
     }
 
 
@@ -834,7 +928,7 @@ def admin_page():
 def admin_status(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     require_admin(current_user)
     server_settings = get_server_settings(db)
-    now = datetime.utcnow()
+    now = utc_now()
     return {
         "version": APP_VERSION,
         "database": "ok",
@@ -906,7 +1000,7 @@ def login(payload: AuthRequest, request: Request, db: Session = Depends(get_db))
     if not user.is_active:
         record_event("login disabled user", payload.email, "warning")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Учетная запись отключена")
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utc_now()
     db.commit()
     return TokenResponse(access_token=create_access_token(user.id))
 
@@ -1186,7 +1280,7 @@ def create_invite(list_id: int, current_user: User = Depends(get_current_user), 
         token=secrets.token_urlsafe(24),
         list_id=shopping_list.id,
         created_by_id=current_user.id,
-        expires_at=datetime.utcnow() + timedelta(hours=settings.invite_token_hours),
+        expires_at=utc_now() + timedelta(hours=settings.invite_token_hours),
     )
     db.add(invite)
     write_activity(db, current_user, "invite_created", list_id=shopping_list.id, details=f"До {invite.expires_at.isoformat()}")
@@ -1204,7 +1298,7 @@ def accept_invite(token: str, current_user: User = Depends(get_current_user), db
     if invite is None or invite.used_at is not None or invite.revoked_at is not None or invite_is_expired(invite):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Приглашение не найдено")
     add_member_if_missing(db, invite.list_id, current_user.id)
-    invite.used_at = datetime.utcnow()
+    invite.used_at = utc_now()
     write_activity(db, current_user, "invite_accepted", list_id=invite.list_id)
     db.commit()
     return {"status": "joined", "list_id": invite.list_id}

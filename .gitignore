@@ -1,7 +1,11 @@
 .env
 __pycache__/
 *.pyc
+*.jks
+*.keystore
+*.p12
 .gradle/
+.kotlin/
 build/
 local.properties
 outputs/

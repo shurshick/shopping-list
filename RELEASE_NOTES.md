@@ -6,6 +6,7 @@
 
 ## Где смотреть
 
+- `docs/releases/v1.5.3.md`
 - `docs/releases/v1.5.2.md`
 - `docs/releases/v1.5.1.md`
 - `docs/releases/v1.5.0.md`
@@ -27,7 +28,7 @@
 Пример:
 
 ```text
-docs/releases/v1.5.2.md
+docs/releases/v1.5.3.md
 ```
 
 Workflow публикации GitHub Release берёт описание именно из этого файла.

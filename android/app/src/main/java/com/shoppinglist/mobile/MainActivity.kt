@@ -28,6 +28,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CleaningServices
@@ -37,7 +39,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Refresh
@@ -48,7 +49,6 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storefront
-import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -380,6 +380,8 @@ private fun ShoppingScreen(
                         expanded = listMenuOpen,
                         onDismiss = { listMenuOpen = false },
                         enabled = selectedList != null,
+                        mergeDuplicateItems = state.mergeDuplicateItems,
+                        onMergeDuplicateItems = onMergeDuplicateItems,
                         onMembers = {
                             listMenuOpen = false
                             onLoadMembers()
@@ -509,10 +511,8 @@ private fun ShoppingScreen(
                         itemName = itemName,
                         quantity = quantity,
                         catalog = state.productCatalog,
-                        mergeDuplicateItems = state.mergeDuplicateItems,
                         onItemName = { itemName = it },
                         onQuantity = { quantity = it },
-                        onMergeDuplicateItems = onMergeDuplicateItems,
                         onPickSuggestion = { itemName = it },
                         onAdd = {
                             val normalizedItemName = itemName.trim()
@@ -884,7 +884,7 @@ private fun DeletedItemUndoCard(onUndo: () -> Unit) {
                 modifier = Modifier.weight(1f)
             )
             TextButton(onClick = onUndo) {
-                Icon(Icons.Default.Undo, contentDescription = null)
+                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
                 Text("Отменить", modifier = Modifier.padding(start = 6.dp))
             }
         }
@@ -984,10 +984,8 @@ private fun ItemCreateCard(
     itemName: String,
     quantity: String,
     catalog: List<String>,
-    mergeDuplicateItems: Boolean,
     onItemName: (String) -> Unit,
     onQuantity: (String) -> Unit,
-    onMergeDuplicateItems: (Boolean) -> Unit,
     onPickSuggestion: (String) -> Unit,
     onAdd: () -> Unit,
     focusRequester: FocusRequester,
@@ -1051,18 +1049,6 @@ private fun ItemCreateCard(
                     }
                 }
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onMergeDuplicateItems(!mergeDuplicateItems) }
-            ) {
-                Checkbox(
-                    checked = mergeDuplicateItems,
-                    onCheckedChange = onMergeDuplicateItems
-                )
-                Text("Объединять одинаковые товары")
-            }
         }
     }
 }
@@ -1072,6 +1058,8 @@ private fun ListDropdownMenu(
     expanded: Boolean,
     enabled: Boolean,
     onDismiss: () -> Unit,
+    mergeDuplicateItems: Boolean,
+    onMergeDuplicateItems: (Boolean) -> Unit,
     onMembers: () -> Unit,
     onActivity: () -> Unit,
     onClearActivity: () -> Unit,
@@ -1122,6 +1110,18 @@ private fun ListDropdownMenu(
             enabled = enabled,
             onClick = onSetDefault
         )
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text("Объединять одинаковые товары") },
+            leadingIcon = {
+                Checkbox(
+                    checked = mergeDuplicateItems,
+                    onCheckedChange = null
+                )
+            },
+            enabled = enabled,
+            onClick = { onMergeDuplicateItems(!mergeDuplicateItems) }
+        )
         DropdownMenuItem(
             text = { Text("Очистить") },
             leadingIcon = { Icon(Icons.Default.CleaningServices, contentDescription = null) },
@@ -1136,7 +1136,7 @@ private fun ListDropdownMenu(
         )
         DropdownMenuItem(
             text = { Text("Вернуть купленные") },
-            leadingIcon = { Icon(Icons.Default.Undo, contentDescription = null) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null) },
             enabled = enabled,
             onClick = onRestorePurchased
         )
@@ -1637,7 +1637,7 @@ private fun SettingsDialog(
                 }
                 HorizontalDivider()
                 OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Logout, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
                     Text("Выйти из аккаунта", modifier = Modifier.padding(start = 8.dp))
                 }
             }

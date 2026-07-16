@@ -8,13 +8,26 @@ android {
     namespace = "com.shoppinglist.mobile"
     compileSdk = 35
 
+    val signingStoreFile = providers.environmentVariable("ANDROID_SIGNING_STORE_FILE").orNull
+    val signingStorePassword = providers.environmentVariable("ANDROID_SIGNING_STORE_PASSWORD").orNull
+    val signingKeyAlias = providers.environmentVariable("ANDROID_SIGNING_KEY_ALIAS").orNull
+    val signingKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASSWORD").orNull
+    val hasReleaseSigning = listOf(
+        signingStoreFile,
+        signingStorePassword,
+        signingKeyAlias,
+        signingKeyPassword
+    ).all { !it.isNullOrBlank() }
+
     signingConfigs {
-        create("githubRelease") {
-            storeFile = file("signing/shopping-list-upload.p12")
-            storePassword = "shopping-list"
-            keyAlias = "shopping-list"
-            keyPassword = "shopping-list"
-            storeType = "pkcs12"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(signingStoreFile!!)
+                storePassword = signingStorePassword!!
+                keyAlias = signingKeyAlias!!
+                keyPassword = signingKeyPassword!!
+                storeType = "pkcs12"
+            }
         }
     }
 
@@ -22,16 +35,15 @@ android {
         applicationId = "com.shoppinglist.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.5.2"
+        versionCode = 36
+        versionName = "1.5.3"
     }
 
     buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("githubRelease")
-        }
         getByName("release") {
-            signingConfig = signingConfigs.getByName("githubRelease")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
         }
     }

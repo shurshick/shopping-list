@@ -1,9 +1,10 @@
 from collections import deque
-from datetime import datetime
 from time import monotonic
 
+from ..time_utils import utc_now
 
-APP_START_TIME = datetime.utcnow()
+
+APP_START_TIME = utc_now()
 _START_MONOTONIC = monotonic()
 _EVENTS: deque[dict[str, str]] = deque(maxlen=300)
 
@@ -15,7 +16,7 @@ def uptime_seconds() -> int:
 def record_event(event: str, details: str = "", level: str = "info") -> None:
     _EVENTS.appendleft(
         {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "level": level[:20],
             "event": event[:80],
             "details": details[:255],

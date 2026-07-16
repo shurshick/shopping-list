@@ -10,6 +10,7 @@ from .database import SessionLocal
 from .models import ActivityLog, ListInvite, ListMember, ServerSetting, ShoppingItem, ShoppingList, User
 from .services.diagnostics_service import record_event
 from .services.migration_service import migration_status
+from .time_utils import utc_now
 
 
 def dt(value: datetime | None) -> str | None:
@@ -48,7 +49,7 @@ def build_backup(include_auth_hashes: bool = False) -> dict[str, Any]:
 
         return {
             "format": "shopping-list-backup-v1",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": utc_now().isoformat(),
             "contains_auth_hashes": include_auth_hashes,
             "users": users,
             "server_settings": [
@@ -138,7 +139,7 @@ def restore_backup(input_path: Path, force: bool = False) -> None:
                     last_client_platform=row.get("last_client_platform", ""),
                     last_client_os_version=row.get("last_client_os_version", ""),
                     last_client_seen_at=parse_dt(row.get("last_client_seen_at")),
-                    created_at=parse_dt(row.get("created_at")) or datetime.utcnow(),
+                    created_at=parse_dt(row.get("created_at")) or utc_now(),
                 )
             )
         for row in data.get("server_settings", []):
@@ -149,7 +150,7 @@ def restore_backup(input_path: Path, force: bool = False) -> None:
                     external_url=row.get("external_url", ""),
                     allow_registration=row.get("allow_registration", True),
                     setup_completed=row.get("setup_completed", False),
-                    updated_at=parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                    updated_at=parse_dt(row.get("updated_at")) or utc_now(),
                 )
             )
         for row in data.get("lists", []):
@@ -158,7 +159,7 @@ def restore_backup(input_path: Path, force: bool = False) -> None:
                     id=row["id"],
                     name=row["name"],
                     owner_id=row["owner_id"],
-                    updated_at=parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                    updated_at=parse_dt(row.get("updated_at")) or utc_now(),
                     archived_at=parse_dt(row.get("archived_at")),
                 )
             )
@@ -172,7 +173,7 @@ def restore_backup(input_path: Path, force: bool = False) -> None:
                     name=row["name"],
                     quantity=row.get("quantity", ""),
                     is_checked=row.get("is_checked", False),
-                    updated_at=parse_dt(row.get("updated_at")) or datetime.utcnow(),
+                    updated_at=parse_dt(row.get("updated_at")) or utc_now(),
                 )
             )
         db.commit()

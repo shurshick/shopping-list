@@ -288,7 +288,7 @@ def test_metrics_contains_counts_and_no_email(client):
     response = client.get("/metrics")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "1.5.2"
+    assert response.json()["version"] == "1.5.3"
     assert "users_total" in response.json()
     assert "metrics@example.com" not in response.text
 
@@ -348,6 +348,9 @@ def test_admin_page_links_new_ops_sections(client):
     assert 'data-admin-view="system"' in response.text
     assert 'data-admin-view="logs"' in response.text
     assert 'data-admin-view="diagnostics"' in response.text
+    assert "color-scheme: dark" in response.text
+    assert 'data-label="Email"' in response.text
+    assert "escapeHtml(value)" in response.text
 
 
 def test_admin_page_does_not_break_script_with_embedded_script_tags(client):
